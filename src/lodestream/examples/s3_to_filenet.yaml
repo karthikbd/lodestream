@@ -1,0 +1,25 @@
+# lodestream: S3 / S3-compatible object store -> IBM FileNet
+name: s3-to-filenet
+manifest: ./state/manifest.db
+
+source:
+  type: s3
+  options:
+    bucket: legacy-archive
+    prefix: documents/
+    # endpoint_url: https://minio.internal:9000
+    include_versions: false
+
+sink:
+  type: filenet_graphql
+  options:
+    endpoint: https://cpe.example.com/content-services-graphql/graphql
+    repository: OS1
+    auth: {type: bearer, token: "${FN_TOKEN}"}
+    file_in_folder: false              # unfiled = fastest load
+
+mapping:
+  default_class: Document
+  properties: {_path: SourcePath, _source_id: MigrationSourceId}
+
+steps: [inventory, load, verify]

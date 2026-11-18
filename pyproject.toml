@@ -1,0 +1,77 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lodestream"
+version = "0.1.0"
+description = "Bulk content migration from any source (WSS/SharePoint, file shares, SQL BLOBs, CSV exports, S3, CMIS) into IBM FileNet: pluggable, restartable, built for 100 TB+."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Karthikkeyan" }]
+keywords = ["filenet", "ecm", "migration", "sharepoint", "wss", "cmis", "content-management", "etl", "bulk-import"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business",
+  "Topic :: System :: Archiving",
+  "Topic :: Utilities",
+  "Typing :: Typed",
+]
+# Deliberately small, mainstream dependency set to ease internal artifact-repository approval.
+dependencies = ["pyyaml>=5.4"]
+
+[project.optional-dependencies]
+filenet = ["requests>=2.28"]
+wss = ["pyodbc>=4.0"]
+sql = ["pyodbc>=4.0"]
+s3 = ["boto3>=1.26"]
+cmis = ["requests>=2.28"]
+all = ["requests>=2.28", "pyodbc>=4.0", "boto3>=1.26"]
+dev = ["pytest>=8", "requests>=2.28", "ruff>=0.4", "mypy>=1.8", "build>=1.0", "twine>=5.0"]
+
+[project.urls]
+Homepage = "https://github.com/karthikbd/lodestream"
+Source = "https://github.com/karthikbd/lodestream"
+Issues = "https://github.com/karthikbd/lodestream/issues"
+Changelog = "https://github.com/karthikbd/lodestream/blob/main/CHANGELOG.md"
+
+[project.scripts]
+lodestream = "lodestream.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lodestream"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/lodestream", "tests", "README.md", "LICENSE", "CHANGELOG.md"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "SIM"]
+ignore = ["B008", "B023", "B027", "E501", "E731", "SIM105", "SIM115"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/lodestream/registry.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

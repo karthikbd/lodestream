@@ -1,0 +1,34 @@
+# lodestream: ANY system that can export "file + metadata" as CSV -> IBM FileNet
+name: csv-to-filenet
+manifest: ./state/manifest.db
+
+source:
+  type: csv_manifest
+  options:
+    path: ./exports/*.csv              # each CSV is a partition (parallel)
+    content_root: /mnt/export/files
+    columns:                           # your CSV header -> lodestream field; other columns = properties
+      id: DocumentId
+      version: VersionNo
+      name: FileName
+      directory: FolderPath
+      file: StoragePath
+      modified: LastModified
+      content_type: DocType
+
+sink:
+  type: filenet_graphql
+  options:
+    endpoint: https://cpe.example.com/content-services-graphql/graphql
+    repository: OS1
+    auth: {type: basic, username: "${FN_USER}", password: "${FN_PASSWORD}"}
+
+mapping:
+  default_class: Document
+  classes: {INV: Invoice, CON: Contract}
+  properties:
+    CustomerNo: CustomerNumber
+    _source_id: MigrationSourceId
+  folder: "/Migrated/{content_type}/{directory}"
+
+steps: [inventory, filter, load, verify]

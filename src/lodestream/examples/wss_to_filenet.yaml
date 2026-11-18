@@ -1,0 +1,57 @@
+# lodestream: WSS (Windows SharePoint Services 3.0) -> IBM FileNet
+# Point the source at a RESTORED COPY of the WSS content database, never the live one.
+name: wss-to-filenet
+manifest: ./state/manifest.db          # keep on local SSD
+
+source:
+  type: wss_sql
+  options:
+    connection_string: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlstage01;DATABASE=WSS_Content_Restored;Trusted_Connection=yes;TrustServerCertificate=yes"
+    include_versions: true             # migrate version history (filter step can trim it)
+    chunk_size_mb: 8                   # BLOBs are streamed in 8 MB windows
+    userdata_columns:                  # AllUserData column -> property name (check your list schema)
+      nvarchar1: Title
+      tp_ContentType: ContentType
+    content_type_field: ContentType    # use the SharePoint content type to pick the FileNet class
+    # site_ids: ["..."]                # optional: limit to site collections
+    # list_ids: ["..."]                # optional: limit to document libraries
+
+sink:
+  type: filenet_graphql
+  options:
+    endpoint: https://cpe.example.com/content-services-graphql/graphql
+    repository: OS1
+    auth: {type: basic, username: "${FN_USER}", password: "${FN_PASSWORD}"}
+    file_in_folder: true
+    create_folders: true
+
+mapping:
+  default_class: Document
+  classes:                             # source content type -> FileNet document class
+    Invoice: Invoice
+    Contract: Contract
+  properties:                          # source field -> FileNet property
+    Title: DocumentTitle
+    _source_id: MigrationSourceId      # create this string property in FileNet first (reconciliation)
+    _modified: {target: SourceModified, type: datetime}
+  title_property: DocumentTitle
+  folder: "/Migrated/{directory}"
+  strip_path_prefixes: ["sites"]
+
+steps:
+  - inventory: {workers: 8}
+  - filter:
+      versions: last_n
+      keep_versions: 3
+      exclude_patterns: ["*/forms/*", "*/_catalogs/*", "*/_vti_*", "*.tmp", "*/~$*"]
+      min_size: 1
+  - extract: {staging_dir: /mnt/staging, workers: 16, max_staged_bytes: 2e12}
+  - load: {workers: 32, batch_size: 50, max_batch_mb: 256}
+  - verify: {workers: 16, cleanup_staging: true, report: ./state/report.json}
+
+rolling:
+  chunk_docs: 200000                   # extract -> load -> verify in rolling chunks (staging stays small)
+
+# hooks:                               # your own functions, called as fn(ctx, step, stats)
+#   before: {load: ["my_fn_admin:disable_cbr_and_subscriptions"]}
+#   after:  {verify: ["my_fn_admin:enable_cbr_and_reindex"]}

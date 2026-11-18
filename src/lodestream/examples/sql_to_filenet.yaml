@@ -1,0 +1,40 @@
+# lodestream: any relational DB holding files as BLOBs (home-grown DMS, imaging system...) -> FileNet
+name: sql-to-filenet
+manifest: ./state/manifest.db
+
+source:
+  type: sql_blob
+  options:
+    connection_string: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=legacydb;DATABASE=DMS;Trusted_Connection=yes"
+    dialect: mssql
+    partitions_query: "SELECT DISTINCT CabinetId FROM Documents"
+    documents_queries:
+      - sql: >
+          SELECT d.DocId AS id, d.Version AS version, d.FileName AS name, d.FolderPath AS directory,
+                 d.ByteSize AS size, d.ModifiedOn AS modified, d.DocType AS content_type,
+                 d.CustomerNo, d.PolicyNo
+          FROM Documents d WHERE d.CabinetId = ? {since_filter}
+        since_column: d.ModifiedOn
+    content:
+      default:
+        length_query: "SELECT {length}(Data) FROM DocumentData WHERE DocId = ? AND Version = ?"
+        chunk_query: "SELECT {substr}(Data, ?, ?) FROM DocumentData WHERE DocId = ? AND Version = ?"
+        params: [id, version]
+
+sink:
+  type: filenet_graphql
+  options:
+    endpoint: https://cpe.example.com/content-services-graphql/graphql
+    repository: OS1
+    auth: {type: basic, username: "${FN_USER}", password: "${FN_PASSWORD}"}
+
+mapping:
+  classes: {POLICY: PolicyDocument, CLAIM: ClaimDocument}
+  properties:
+    CustomerNo: CustomerNumber
+    PolicyNo: PolicyNumber
+    _source_id: MigrationSourceId
+  folder: "/Migrated/{content_type}"
+
+steps: [inventory, filter, extract, load, verify]
+rolling: {chunk_docs: 100000}
