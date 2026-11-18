@@ -22,7 +22,8 @@
 ## Install
 
 ```bash
-pip install ./lodestream[all]          # or pick extras: [filenet] [wss] [sql] [s3] [cmis]
+pip install "lodestream[all]"          # or pick extras: [filenet] [wss] [sql] [s3] [cmis]
+pip install --no-index --find-links ./wheels lodestream   # air-gapped: wheels copied into ./wheels
 ```
 
 ## Quick start
