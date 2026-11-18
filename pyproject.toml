@@ -7,7 +7,7 @@ name = "lodestream"
 version = "0.1.0"
 description = "Bulk content migration from any source (WSS/SharePoint, file shares, SQL BLOBs, CSV exports, S3, CMIS) into IBM FileNet: pluggable, restartable, built for 100 TB+."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Karthikkeyan" }]
 keywords = ["filenet", "ecm", "migration", "sharepoint", "wss", "cmis", "content-management", "etl", "bulk-import"]
@@ -19,7 +19,6 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -58,7 +57,7 @@ include = ["src/lodestream", "tests", "README.md", "LICENSE", "CHANGELOG.md"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py310"
 src = ["src"]
 
 [tool.ruff.lint]

@@ -206,7 +206,7 @@ class SqlBlobSource(Source):
                 if not rows:
                     break
                 for raw in rows:
-                    rec = self.postprocess(self._row_to_record(dict(zip(cols, raw)), partition))
+                    rec = self.postprocess(self._row_to_record(dict(zip(cols, raw, strict=False)), partition))
                     if since and rec.modified and require_dt(rec.modified) <= since:
                         continue
                     yield rec

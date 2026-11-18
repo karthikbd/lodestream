@@ -258,7 +258,7 @@ class FileNetGraphQLSink(Sink):
                 item.close()
         errors = self._errors_by_alias(payload)
         data = payload.get("data") or {}
-        for alias, item in zip(aliases, items):
+        for alias, item in zip(aliases, items, strict=False):
             node = data.get(alias) or {}
             if node.get("id"):
                 results[item.record.source_id] = LoadResult(item.record.source_id, target_id=node["id"])
@@ -315,7 +315,7 @@ class FileNetGraphQLSink(Sink):
         if not ready:
             return
         fragments, var_names, aliases = [], [], []
-        for n, (item, res) in enumerate(zip(ready, reservations)):
+        for n, (item, res) in enumerate(zip(ready, reservations, strict=False)):
             props, _ = self._props_literal(item.properties)
             fragments.append(render(self.t_checkin, alias=f"v{n}", repository=self.repository,
                                     id=gql_literal(res), mime=gql_literal(item.mime),
@@ -323,7 +323,7 @@ class FileNetGraphQLSink(Sink):
             var_names.append(f"c{n}")
             aliases.append(f"v{n}")
         self._upload(ready, fragments, var_names, aliases, results, "checkinDocument")
-        for item, res in zip(ready, reservations):
+        for item, res in zip(ready, reservations, strict=False):
             r = results.get(item.record.source_id)
             if r and r.error:
                 r.error += f" (document left checked out; reservation {res})"
