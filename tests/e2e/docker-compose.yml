@@ -1,0 +1,12 @@
+# One SQL Server instance (2022 by default; SQL_IMAGE picks the version) holding a WSS 3.0-shaped
+# content database for the end-to-end suite.
+#   docker compose -f tests/e2e/docker-compose.yml up -d
+#   LODESTREAM_E2E=1 pytest tests/e2e -v
+services:
+  sql:
+    image: ${SQL_IMAGE:-mcr.microsoft.com/mssql/server:2022-latest}
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Str0ng!Passw0rd"
+      MSSQL_PID: Developer
+    ports: ["14331:1433"]

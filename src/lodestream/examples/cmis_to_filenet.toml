@@ -1,0 +1,48 @@
+# lodestream: CMIS repository (Alfresco, Documentum, OpenText, Nuxeo, SharePoint CMIS) -> IBM FileNet
+name = "cmis-to-filenet"
+manifest = "./state/manifest.db"
+
+[source]
+type = "cmis"
+
+[source.options]
+url = "https://alfresco.example.com/alfresco/api/-default-/public/cmis/versions/1.1/browser"
+username = "${CMIS_USER}"
+password = "${CMIS_PASSWORD}"
+folders = ["/Sites/finance/documentLibrary", "/Sites/legal/documentLibrary"]
+include_versions = true
+
+[sink]
+type = "filenet_graphql"
+
+[sink.options]
+endpoint = "https://cpe.example.com/content-services-graphql/graphql"
+repository = "OS1"
+auth = { type = "basic", username = "${FN_USER}", password = "${FN_PASSWORD}" }
+
+[mapping]
+default_class = "Document"
+folder = "/Migrated/{directory}"
+classes = { "D:acme:invoice" = "Invoice", "cmis:document" = "Document" }
+properties = { "acme:invoiceNo" = "InvoiceNumber", _source_id = "MigrationSourceId" }
+
+[[steps]]
+name = "inventory"
+workers = 4
+
+[[steps]]
+name = "filter"
+versions = "latest"
+
+[[steps]]
+name = "extract"
+staging_dir = "/mnt/staging"
+workers = 8
+
+[[steps]]
+name = "load"
+workers = 16
+
+[[steps]]
+name = "verify"
+workers = 8

@@ -6,6 +6,8 @@ import pytest
 
 from lodestream import LoadResult, Migration, Status, register_sink
 from lodestream.cli import main as cli_main
+
+from fakes import FakeCmis, FakeFileNet
 from lodestream.sinks.local_folder import LocalFolderSink
 
 LIST_A, LIST_B = "list-aaaa", "list-bbbb"
@@ -216,83 +218,68 @@ def test_csv_manifest_source(tmp_path):
     assert json.loads((tmp_path / "out" / "CON" / "b.pdf.meta.json").read_text())["class"] == "Document"
 
 
-# --------------------------------------------------------------------- FileNet sink
-class FakeResp:
-    def __init__(self, payload, status=200):
-        self._p, self.status_code, self.text = payload, status, json.dumps(payload)
+# --------------------------------------------------------------------- FileNet sink (real HTTP)
+def test_filenet_graphql_sink_end_to_end_over_http(wss):
+    with FakeFileNet() as fn:
+        cfg = wss_config(wss, ["inventory", {"filter": {"exclude_patterns": ["*/forms/*"]}},
+                               {"load": {"workers": 1, "batch_size": 10}}, "verify"])
+        cfg["sink"] = {"type": "filenet_graphql", "options": {
+            "endpoint": fn.endpoint, "repository": "OS1",
+            "auth": {"type": "basic", "username": "u", "password": "p"}}}
+        Migration(cfg, str(wss)).run()
+        m = Migration(cfg, str(wss))
+        assert by_status(m) == {"VERIFIED": 6, "SKIPPED": 1}
 
-    def json(self):
-        return self._p
-
-
-class FakeFileNet:
-    """Minimal stand-in for the CS GraphQL endpoint: records calls, returns ids."""
-
-    def __init__(self):
-        self.calls, self.cookies, self.headers = [], {}, {}
-        self.folders, self.docs, self.n = set(), {}, 0
-        self.auth = self.verify = None
-
-    def post(self, url, json=None, data=None, files=None, headers=None, timeout=None):
-        import json as _j
-        import re
-        if files:
-            ops = _j.loads(data["operations"])
-            mapping = _j.loads(data["map"])
-            q = ops["query"]
-            self.calls.append(("upload", q, {k: v[1].read() for k, v in files.items()}, mapping))
-            out = {}
-            for alias in re.findall(r"(\w+): (?:createDocument|checkinDocument)\(", q):
-                self.n += 1
-                out[alias] = {"id": f"{{DOC-{self.n}}}"}
-            return FakeResp({"data": out})
-        q = json["query"]
-        self.calls.append(("json", q))
-        if "__typename" in q:
-            return FakeResp({"data": {"__typename": "Query"}})
-        if "folder(" in q:
-            path = re.search(r'identifier: "([^"]+)"', q).group(1)
-            return FakeResp({"data": {"folder": {"id": "F"} if path in self.folders else None}})
-        if "createFolder" in q:
-            parent = re.search(r'parent: \{ identifier: "([^"]+)"', q).group(1)
-            name = re.search(r'name: "([^"]+)"', q).group(1)
-            self.folders.add(parent.rstrip("/") + "/" + name)
-            return FakeResp({"data": {"createFolder": {"id": "F"}}})
-        if "checkoutDocument" in q:
-            aliases = re.findall(r"(\w+): checkoutDocument", q)
-            return FakeResp({"data": {a: {"id": "x", "reservation": {"id": f"RES-{a}"}} for a in aliases}})
-        if "document(" in q:
-            return FakeResp({"data": {"document": {"id": "x", "contentSize": None}}})
-        return FakeResp({"errors": [{"message": "unexpected"}]}, 400)
+        first = fn.uploads[0]["query"]
+        assert first.count("createDocument(") == 3          # 3 new documents in ONE request
+        assert 'classIdentifier: "Invoice"' in first and 'fileInFolderIdentifier: "/Migrated/Invoices"' in first
+        assert '{MigrationSourceId: "doc1:512"}' in first
+        assert "DocumentTitle" not in first.split("properties:")[1]  # sent as `name`, not duplicated
+        assert b"INVOICE-1-v1" * 40 in fn.uploads[0]["files"].values()
+        assert any("checkoutDocument" in q for q in fn.queries)
+        assert any("checkinDocument" in u["query"] for u in fn.uploads)
+        assert "/Migrated/Invoices/2019" in fn.folders
+        uploads = [r for r in fn.requests if r["chunked"]]
+        assert uploads, "uploads must be streamed with chunked transfer encoding"
+        assert all(r["auth"] == "Basic dTpw" for r in fn.requests)
+        assert all(r["xsrf"] == "tok123" for r in fn.requests[1:])   # cookie from the probe is echoed
+        v3 = m.manifest.get("doc1:1536")
+        assert v3.target_id.startswith("{DOC-") and v3.checksum
 
 
-def test_filenet_graphql_sink_end_to_end(wss):
-    fake = FakeFileNet()
-    cfg = wss_config(wss, ["inventory", {"filter": {"exclude_patterns": ["*/forms/*"]}},
-                           {"load": {"workers": 1, "batch_size": 10}}, "verify"])
-    cfg["sink"] = {"type": "filenet_graphql", "options": {
-        "endpoint": "https://cpe/graphql", "repository": "OS1", "_session": fake,
-        "auth": {"type": "basic", "username": "u", "password": "p"}}}
-    Migration(cfg, str(wss)).run()
-    m = Migration(cfg, str(wss))
-    assert by_status(m) == {"VERIFIED": 6, "SKIPPED": 1}
+def test_filenet_partial_batch_failure_marks_only_failed_items(wss):
+    with FakeFileNet() as fn:
+        fn.fail_names = ["inv-002.pdf"]
+        cfg = wss_config(wss, ["inventory", {"filter": {"versions": "latest"}}, {"load": {"workers": 1}}])
+        cfg["sink"] = {"type": "filenet_graphql", "options": {"endpoint": fn.endpoint, "repository": "OS1"}}
+        Migration(cfg, str(wss)).run()
+        m = Migration(cfg, str(wss))
+        counts = by_status(m)
+        assert counts["LOADED"] == 3 and counts["FAILED"] == 1
+        failed = next(m.manifest.iter_records([Status.FAILED]))[0]
+        assert failed.name == "inv-002.pdf" and "simulated failure" in failed.error
 
-    uploads = [c for c in fake.calls if c[0] == "upload"]
-    first = uploads[0][1]
-    assert first.count("createDocument(") == 3          # 3 new documents in ONE request
-    assert 'classIdentifier: "Invoice"' in first and 'fileInFolderIdentifier: "/Migrated/Invoices"' in first
-    assert '{MigrationSourceId: "doc1:512"}' in first
-    assert "DocumentTitle" not in first.split("properties:")[1]  # sent as `name`, not duplicated
-    assert b"INVOICE-1-v1" * 40 in uploads[0][2].values()
-    assert any("checkoutDocument" in c[1] for c in fake.calls if c[0] == "json")
-    assert any("checkinDocument" in c[1] for c in uploads)
-    assert "/Migrated/Invoices/2019" in fake.folders
-    v3 = m.manifest.get("doc1:1536")
-    assert v3.target_id.startswith("{DOC-") and v3.checksum
+
+def test_cmis_source_over_http(tmp_path):
+    with FakeCmis() as cm:
+        cfg = {"manifest": "m.db",
+               "source": {"type": "cmis", "options": {"url": cm.url + "/cmis/browser", "folders": ["/Docs"],
+                                                      "include_versions": True}},
+               "sink": {"type": "local_folder", "options": {"root": "out"}},
+               "mapping": {"classes": {"D:acme:report": "Report"}, "properties": {"acme:region": "Region"}},
+               "steps": ["inventory", "load", "verify"]}
+        Migration(cfg, str(tmp_path)).run()
+        assert by_status(Migration(cfg, str(tmp_path))) == {"VERIFIED": 3}
+    out = tmp_path / "out" / "Docs"
+    assert (out / "report.pdf").read_bytes() == b"REPORT v1"
+    assert (out / "report.pdf;v2").read_bytes() == b"REPORT v2 longer"
+    assert (out / "2024" / "note.txt").read_bytes() == b"a note"
+    meta = json.loads((out / "report.pdf;v2.meta.json").read_text())
+    assert meta["class"] == "Report" and meta["properties"]["Region"] == "EMEA"
 
 
 def test_cli_init_steps_status(tmp_path, capsys):
-    out = tmp_path / "m.yaml"
+    out = tmp_path / "m.toml"
     assert cli_main(["init", "fileshare_to_filenet", "-o", str(out)]) == 0
     assert "filesystem" in out.read_text()
     assert cli_main(["steps"]) == 0

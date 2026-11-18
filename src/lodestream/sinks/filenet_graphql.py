@@ -19,9 +19,9 @@ from __future__ import annotations
 import json
 import re
 import threading
-import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from .._http import HttpClient
 from ..models import DocumentRecord
 from ..registry import register_sink
 from ..utils import log, to_iso
@@ -79,25 +79,29 @@ def render(template: str, **values: str) -> str:
     return template
 
 
-class _Transient(Exception):
-    pass
-
-
 @register_sink("filenet_graphql")
 class FileNetGraphQLSink(Sink):
-    """options:
-        endpoint: https://cpe.example.com/content-services-graphql/graphql
-        repository: OS1                     # object store symbolic name or id
-        auth: {type: basic, username: ${FN_USER}, password: ${FN_PASSWORD}}
-              # or {type: bearer, token: ${FN_TOKEN}}
-        file_in_folder: true                # file docs into mapping.folder (slower; false = unfiled)
-        create_folders: true
-        name_property: DocumentTitle        # sent as `name`, removed from the properties list
-        verify_tls: true                    # or path to a CA bundle
-        timeout: 600
-        max_retries: 3                      # for non-upload calls (verify, folders, checkout)
-        headers: {}                         # extra HTTP headers
-        upload_scalar: String               # GraphQL type used for upload variables
+    """Creates documents, versions and folders in FileNet through the Content Services GraphQL API.
+    Uses only the Python standard library (urllib); uploads are streamed with chunked encoding.
+
+        [sink]
+        type = "filenet_graphql"
+
+        [sink.options]
+        endpoint = "https://cpe.example.com/content-services-graphql/graphql"
+        repository = "OS1"                  # object store symbolic name or id
+        auth = { type = "basic", username = "${FN_USER}", password = "${FN_PASSWORD}" }
+        # auth = { type = "bearer", token = "${FN_TOKEN}" }
+        file_in_folder = true               # file documents into mapping.folder (false = unfiled, fastest)
+        create_folders = true
+        name_property = "DocumentTitle"     # sent as `name`, removed from the properties list
+        verify_tls = true                   # or the path of a PEM CA bundle
+        timeout = 600
+        max_retries = 3                     # non-upload calls (verify, folders, checkout)
+        headers = {}                        # extra HTTP headers
+        upload_scalar = "String"            # GraphQL type of the upload variables
+        # create_template / checkout_template / checkin_template / verify_template /
+        # folder_get_template / folder_create_template override each GraphQL query
     """
 
     def __init__(self, options=None, base_dir="."):
@@ -117,72 +121,53 @@ class FileNetGraphQLSink(Sink):
         self.t_verify = o.get("verify_template", VERIFY_TEMPLATE)
         self.t_folder_get = o.get("folder_get_template", FOLDER_GET_TEMPLATE)
         self.t_folder_create = o.get("folder_create_template", FOLDER_CREATE_TEMPLATE)
-        self.session = o.get("_session")  # tests may inject a fake session
+        self.client: Optional[HttpClient] = None
         self._folders: set = {"/"}
         self._folder_lock = threading.Lock()
 
     # ------------------------------------------------------------- transport
     def open(self) -> None:
-        if self.session is None:
-            import requests
-
-            self.session = requests.Session()
-        auth = self.options.get("auth") or {}
-        if auth.get("type", "basic") == "basic" and auth.get("username"):
-            self.session.auth = (auth["username"], auth.get("password", ""))
-        elif auth.get("type") == "bearer":
-            self.session.headers["Authorization"] = f"Bearer {auth['token']}"
-        self.session.headers.update(self.options.get("headers") or {})
-        self.session.verify = self.options.get("verify_tls", True)
+        if self.client is None:
+            self.client = HttpClient(auth=self.options.get("auth"), verify=self.options.get("verify_tls", True),
+                                     timeout=self.timeout, headers=self.options.get("headers"),
+                                     max_retries=self.max_retries)
         # Probe: checks connectivity/auth and picks up the XSRF cookie if the server uses one.
         self._post("query { __typename }")
 
+    @property
+    def http(self) -> HttpClient:
+        if self.client is None:
+            raise RuntimeError("FileNet sink used before open()")
+        return self.client
+
     def _headers(self) -> Dict[str, str]:
-        headers: Dict[str, str] = {}
-        cookies = getattr(self.session, "cookies", None)
-        token = cookies.get("ECM-CS-XSRF-Token") if cookies is not None else None
-        if token:
-            headers["ECM-CS-XSRF-Token"] = token
-        return headers
+        token = self.client.cookie("ECM-CS-XSRF-Token") if self.client else None
+        return {"ECM-CS-XSRF-Token": token} if token else {}
 
     @staticmethod
     def _parse(resp) -> Dict[str, Any]:
-        if resp.status_code in (502, 503, 504):
-            raise _Transient(f"HTTP {resp.status_code}")
         try:
             payload = resp.json()
         except ValueError:
-            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}") from None
-        if resp.status_code >= 400 and not payload.get("errors"):
-            raise RuntimeError(f"HTTP {resp.status_code}: {str(payload)[:300]}")
+            raise RuntimeError(f"HTTP {resp.status}: {resp.text[:300]}") from None
+        if resp.status >= 400 and not payload.get("errors"):
+            raise RuntimeError(f"HTTP {resp.status}: {str(payload)[:300]}")
         return payload
 
     def _post(self, query: str) -> Dict[str, Any]:
-        """JSON POST without uploads; retried on transient failures."""
-        attempt = 0
-        while True:
-            try:
-                resp = self.session.post(self.endpoint, json={"query": query, "variables": {}},
-                                         headers=self._headers(), timeout=self.timeout)
-                return self._parse(resp)
-            except Exception as exc:  # noqa: BLE001
-                transient = isinstance(exc, _Transient) or type(exc).__name__ in (
-                    "ConnectionError", "Timeout", "ReadTimeout", "ConnectTimeout")
-                if not transient or attempt >= self.max_retries:
-                    raise
-                time.sleep(min(2 ** attempt, 30))
-                attempt += 1
+        """JSON POST without uploads; the client retries transient failures (502/503/504, network)."""
+        return self._parse(self.http.post_json(self.endpoint, {"query": query, "variables": {}},
+                                                 headers=self._headers()))
 
     def _post_multipart(self, query: str, variables: Dict[str, Any], mapping: Dict[str, List[str]],
                         files: Dict[str, Tuple[str, Any, str]]) -> Dict[str, Any]:
-        """GraphQL multipart request. Not retried: streams cannot be rewound and a
+        """GraphQL multipart request, streamed. Not retried: streams cannot be rewound and a
         lost response might mean the documents were created. Failures go back to the
         manifest as FAILED and are retried by a later run."""
-        data = {"operations": json.dumps({"query": query, "variables": variables}),
-                "map": json.dumps(mapping)}
-        resp = self.session.post(self.endpoint, data=data, files=files,
-                                 headers=self._headers(), timeout=self.timeout)
-        return self._parse(resp)
+        fields = [("operations", json.dumps({"query": query, "variables": variables})),
+                  ("map", json.dumps(mapping))]
+        parts = [(name, fname, stream, ctype) for name, (fname, stream, ctype) in files.items()]
+        return self._parse(self.http.post_multipart(self.endpoint, fields, parts, headers=self._headers()))
 
     @staticmethod
     def _errors_by_alias(payload: Dict[str, Any]) -> Dict[Optional[str], str]:

@@ -14,10 +14,14 @@ from .base import Stage
 
 @register_stage("verify")
 class VerifyStage(Stage):
-    """options:
-        workers: 8
-        cleanup_staging: true      # delete staged copies once verified (keeps staging small)
-        report: ./lodestream-report.json
+    """Checks every LOADED item in the target (existence, size, checksum where the sink can) and
+    writes a reconciliation report.
+
+        [[steps]]
+        name = "verify"
+        workers = 8
+        cleanup_staging = true              # delete staged copies once verified
+        report = "./lodestream-report.json"
     """
 
     description = "Check loaded items exist in the target with the right size/checksum; write a reconciliation report."

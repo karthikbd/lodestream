@@ -1,0 +1,61 @@
+# Releasing to PyPI
+
+## Automated (recommended)
+
+`.github/workflows/python-publish.yml` runs when a GitHub release is published (or by hand from the
+Actions tab). It runs the tests, builds the sdist and wheel, checks the wheel declares no runtime
+dependencies, writes a CycloneDX SBOM, and publishes with **PyPI Trusted Publishing** (OIDC) from
+the GitHub environment `release`, so no API token is stored anywhere. It then signs the wheel,
+sdist and SBOM with Sigstore and attaches them to the release.
+
+One-time setup on pypi.org → *Your account* → *Publishing* → *Add a new pending publisher*:
+
+| Field | Value |
+|---|---|
+| PyPI project name | `lodestream` |
+| Owner | `karthikbd` |
+| Repository name | `lodestream` |
+| Workflow name | `python-publish.yml` |
+| Environment name | `release` |
+
+Each release:
+
+```console
+$ # bump version in pyproject.toml and src/lodestream/__init__.py, update CHANGELOG.md and docs/whatsnew
+$ git push origin main
+$ gh release create v{{ version }} --title v{{ version }} --notes-file CHANGELOG.md
+```
+
+When the publish run succeeds, `verify-release.yml` downloads the release assets on a fresh runner,
+verifies each Sigstore signature against `python-publish.yml`, the tag and the `release` trigger,
+and checks that PyPI serves byte-identical files. A red run there means the release must not be
+trusted. Re-run it for any tag from the Actions tab (*Run workflow*, tag `v{{ version }}`).
+
+`tests.yml` (Python 3.10–3.13 plus a warnings-as-errors docs build), `e2e.yml`, `codeql.yml` and
+`scorecard.yml` run on every push to `main`. Every action is pinned to a commit SHA, and Dependabot
+keeps the pins current.
+
+## Manual
+
+```console
+$ pip install build twine
+$ python -m build                    # dist/*.whl and dist/*.tar.gz
+$ twine check dist/*
+$ twine upload dist/*                # asks for a PyPI API token
+```
+
+For an internal repository (JFrog Artifactory, Nexus):
+`twine upload --repository-url https://<artifactory>/api/pypi/<repo> dist/*`.
+
+## Checks before tagging
+
+- `pytest -q` passes, and `LODESTREAM_E2E=1 pytest tests/e2e` passes against a real SQL Server.
+- `CHANGELOG.md` and `docs/whatsnew/index.md` describe the release.
+- The wheel's metadata has **no** `Requires-Dist` lines except the `test` and `docs` extras.
+- `pip install --no-index --no-deps dist/*.whl` works in a clean virtual environment.
+- `python -m sphinx -W -b html docs docs/_build/html` builds with no warnings.
+
+## Hosting this documentation
+
+`.readthedocs.yaml` at the repository root builds these docs on Read the Docs: every push to `main`
+updates *latest*, and every tag gets its own versioned docs.

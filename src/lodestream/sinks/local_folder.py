@@ -16,7 +16,13 @@ from .base import LoadItem, LoadResult, Sink
 
 @register_sink("local_folder")
 class LocalFolderSink(Sink):
-    """options:  root: ./out   write_metadata: true"""
+    """Writes documents to a local folder with JSON metadata sidecars, for dry runs, mapping reviews
+    and source-side throughput tests.
+
+        [sink]
+        type = "local_folder"
+        options = { root = "./out", write_metadata = true }
+    """
 
     def __init__(self, options=None, base_dir="."):
         super().__init__(options, base_dir)

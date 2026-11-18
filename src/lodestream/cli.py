@@ -8,6 +8,7 @@ import os
 import shutil
 import sys
 
+from . import __version__
 from .pipeline import Migration
 from .registry import SINKS, SOURCES, load_builtins
 from .utils import human_bytes
@@ -72,9 +73,9 @@ def cmd_retry(args) -> int:
 
 
 def cmd_init(args) -> int:
-    src = os.path.join(_EXAMPLES, f"{args.template}.yaml")
+    src = os.path.join(_EXAMPLES, f"{args.template}.toml")
     if not os.path.exists(src):
-        choices = sorted(f[:-5] for f in os.listdir(_EXAMPLES) if f.endswith(".yaml"))
+        choices = sorted(f[:-5] for f in os.listdir(_EXAMPLES) if f.endswith(".toml"))
         print(f"Unknown template {args.template!r}. Choose from: {', '.join(choices)}")
         return 1
     if os.path.exists(args.output) and not args.force:
@@ -85,24 +86,29 @@ def cmd_init(args) -> int:
     return 0
 
 
-def main(argv=None) -> int:
+TEMPLATES = ("wss_to_filenet", "fileshare_to_filenet", "csv_to_filenet", "cmis_to_filenet",
+             "s3_to_filenet", "sql_to_filenet")
+
+
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="lodestream", description="Bulk content migration from any source into IBM FileNet.")
-    p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--version", action="version", version=f"lodestream {__version__}")
+    p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("init", help="write a starter config from a template")
-    s.add_argument("template", nargs="?", default="wss_to_filenet",
-                   help="wss_to_filenet | fileshare_to_filenet | csv_to_filenet | cmis_to_filenet | s3_to_filenet | sql_to_filenet")
-    s.add_argument("-o", "--output", default="migration.yaml")
+    s.add_argument("template", nargs="?", default="wss_to_filenet", choices=TEMPLATES,
+                   help="starter template (default: wss_to_filenet)")
+    s.add_argument("-o", "--output", default="migration.toml")
     s.add_argument("--force", action="store_true")
     s.set_defaults(func=cmd_init)
 
     s = sub.add_parser("steps", help="list available steps, sources and sinks")
-    s.add_argument("-c", "--config")
+    s.add_argument("-c", "--config", help="also list plugins declared in this config")
     s.set_defaults(func=cmd_steps)
 
     s = sub.add_parser("run", help="run the migration (all configured steps or --steps)")
-    s.add_argument("-c", "--config", required=True)
+    s.add_argument("-c", "--config", required=True, help="config file: .toml, .json, or .yaml if PyYAML is installed")
     s.add_argument("--steps", help="comma-separated, e.g. inventory,filter  or  delta,load,verify")
     s.add_argument("--dry-run", action="store_true", help="inventory/filter only, then estimate")
     s.add_argument("--rate", type=float, help="docs/sec for the estimate (dry run)")
@@ -110,22 +116,26 @@ def main(argv=None) -> int:
     s.set_defaults(func=cmd_run)
 
     s = sub.add_parser("status", help="counts by status and recent runs")
-    s.add_argument("-c", "--config", required=True)
+    s.add_argument("-c", "--config", required=True, help="config file: .toml, .json, or .yaml if PyYAML is installed")
     s.add_argument("--json", action="store_true")
     s.set_defaults(func=cmd_status)
 
     s = sub.add_parser("estimate", help="time remaining at observed or given rate")
-    s.add_argument("-c", "--config", required=True)
+    s.add_argument("-c", "--config", required=True, help="config file: .toml, .json, or .yaml if PyYAML is installed")
     s.add_argument("--rate", type=float)
     s.add_argument("--gbps", type=float)
     s.set_defaults(func=cmd_estimate)
 
     s = sub.add_parser("retry", help="send FAILED items back to the queue")
-    s.add_argument("-c", "--config", required=True)
+    s.add_argument("-c", "--config", required=True, help="config file: .toml, .json, or .yaml if PyYAML is installed")
     s.add_argument("--keep-attempts", action="store_true")
     s.set_defaults(func=cmd_retry)
 
-    args = p.parse_args(argv)
+    return p
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
     _setup_logging(args.verbose)
     try:
         return args.func(args)

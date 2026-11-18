@@ -13,16 +13,22 @@ from .base import Source
 
 @register_source("s3")
 class S3Source(Source):
-    """options:
-        bucket: legacy-docs
-        prefix: archive/                 # optional
-        endpoint_url: https://minio:9000 # optional, for S3-compatible stores
-        region: us-east-1
-        include_versions: false          # true = migrate every object version
-        partition_by_prefix: true        # top-level "folders" under prefix are scanned in parallel
-    Credentials come from the normal AWS chain (env vars, profile, instance role).
-    Object user-metadata (x-amz-meta-*) is NOT fetched at inventory time (one extra call
-    per object); add a custom source subclass if you need it."""
+    """S3 and S3-compatible object storage. Uses boto3, which lodestream never installs: it must
+    already be installed. Credentials come from the normal AWS chain (environment, profile, role).
+
+        [source]
+        type = "s3"
+
+        [source.options]
+        bucket = "legacy-docs"
+        prefix = "archive/"                 # optional
+        endpoint_url = "https://minio:9000" # optional, for S3-compatible stores
+        region = "us-east-1"
+        include_versions = false            # true = migrate every object version
+        partition_by_prefix = true          # top-level "folders" are scanned in parallel
+
+    Object user-metadata (x-amz-meta-*) is not fetched at inventory time (one extra call per object).
+    """
 
     def __init__(self, options=None, base_dir="."):
         super().__init__(options, base_dir)

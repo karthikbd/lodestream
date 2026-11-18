@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional, Tuple
 
+from .config import MAPPING_KEYS, check_keys
 from .models import DocumentRecord
 from .utils import require_dt
 
@@ -37,23 +38,31 @@ def _convert(value: Any, spec: Dict[str, Any]) -> Any:
 
 
 class Mapper:
-    """Config example::
+    """Maps a source record to a target class, properties and folder.
 
-        mapping:
-          default_class: Document
-          classes: {Invoices: Invoice, "Contracts": Contract}   # source content_type -> class
-          properties:
-            Title: DocumentTitle
-            InvoiceDate: {target: InvoiceDate, type: datetime}
-            _source_id: MigrationSourceId                      # built-in fields start with _
-          passthrough_unmapped: false
-          title_property: DocumentTitle
-          folder: "/Migrated/{partition}/{directory}"           # null = do not file in a folder
-          strip_path_prefixes: ["sites/finance/"]
+    Example ``[mapping]`` section::
+
+        [mapping]
+        default_class = "Document"
+        title_property = "DocumentTitle"
+        folder = "/Migrated/{partition}/{directory}"   # omit = do not file in a folder
+        strip_path_prefixes = ["sites/finance"]
+        passthrough_unmapped = false
+
+        [mapping.classes]                   # source content_type -> class
+        Invoices = "Invoice"
+
+        [mapping.properties]                # built-in fields start with _
+        Title = "DocumentTitle"
+        InvoiceDate = { target = "InvoiceDate", type = "datetime" }
+        _source_id = "MigrationSourceId"
+
+    See the Mapping page of the user guide for every field.
     """
 
     def __init__(self, cfg: Optional[Dict[str, Any]] = None):
         cfg = cfg or {}
+        check_keys(cfg, MAPPING_KEYS, "[mapping]")
         self.default_class = cfg.get("default_class", "Document")
         self.classes = cfg.get("classes", {}) or {}
         self.properties: Dict[str, Dict[str, Any]] = {}
@@ -77,7 +86,9 @@ class Mapper:
         values = {**record.properties, **record.builtin_fields()}
         out: Dict[str, Any] = {}
         for src, spec in self.properties.items():
-            v = values.get(src, spec.get("default"))
+            v = values.get(src)
+            if v is None or v == "":
+                v = spec.get("default")
             if v is None or v == "":
                 continue
             out[spec["target"]] = _convert(v, spec)

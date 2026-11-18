@@ -1,0 +1,27 @@
+# lodestream: S3 / S3-compatible object store -> IBM FileNet
+# The s3 source uses boto3, which lodestream never installs: it must already be installed.
+name = "s3-to-filenet"
+manifest = "./state/manifest.db"
+steps = ["inventory", "load", "verify"]
+
+[source]
+type = "s3"
+
+[source.options]
+bucket = "legacy-archive"
+prefix = "documents/"
+# endpoint_url = "https://minio.internal:9000"
+include_versions = false
+
+[sink]
+type = "filenet_graphql"
+
+[sink.options]
+endpoint = "https://cpe.example.com/content-services-graphql/graphql"
+repository = "OS1"
+file_in_folder = false                    # unfiled = fastest load
+auth = { type = "bearer", token = "${FN_TOKEN}" }
+
+[mapping]
+default_class = "Document"
+properties = { _path = "SourcePath", _source_id = "MigrationSourceId" }

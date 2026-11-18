@@ -13,16 +13,19 @@ from .base import Stage
 
 @register_stage("filter")
 class FilterStage(Stage):
-    """options:
-        versions: all | latest | last_n      (default all)
-        keep_versions: 3                     (for last_n)
-        exclude_patterns: ["*/forms/*", "*.tmp", "*/_vti_*"]   # matched on lower-case /dir/name
-        include_patterns: []                 # if set, only matching paths are kept
-        min_size: 1
-        max_size: 10737418240
-        modified_after: 2015-01-01
-        include_content_types: []            # e.g. library names / CMIS types
-        exclude_content_types: []
+    """Marks PENDING items that should not be migrated as SKIPPED (the reason is recorded).
+
+        [[steps]]
+        name = "filter"
+        versions = "all"                    # all | latest | last_n
+        keep_versions = 3                   # for last_n
+        exclude_patterns = ["*/forms/*", "*.tmp", "*/_vti_*"]   # matched on lower-case /dir/name
+        include_patterns = []               # if set, only matching paths are kept
+        min_size = 1
+        max_size = 10737418240
+        modified_after = "2015-01-01"
+        include_content_types = []          # e.g. library names or CMIS types
+        exclude_content_types = []
     """
 
     description = "Skip versions/files you do not want to move (old versions, junk, system files, by date/size/type)."

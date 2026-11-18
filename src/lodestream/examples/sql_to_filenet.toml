@@ -1,0 +1,44 @@
+# lodestream: any relational DB holding files as BLOBs (home-grown DMS, imaging system...) -> FileNet
+name = "sql-to-filenet"
+manifest = "./state/manifest.db"
+steps = ["inventory", "filter", "extract", "load", "verify"]
+
+[source]
+type = "sql_blob"
+
+[source.options]
+host = "legacydb"
+database = "DMS"
+user = "dms_reader"
+password_env = "DMS_DB_PASSWORD"
+dialect = "mssql"
+partitions_query = "SELECT DISTINCT CabinetId FROM Documents"
+
+[[source.options.documents_queries]]
+since_column = "d.ModifiedOn"
+sql = """
+SELECT d.DocId AS id, d.Version AS version, d.FileName AS name, d.FolderPath AS directory,
+       d.ByteSize AS size, d.ModifiedOn AS modified, d.DocType AS content_type,
+       d.CustomerNo, d.PolicyNo
+FROM Documents d WHERE d.CabinetId = ? {since_filter}"""
+
+[source.options.content.default]
+length_query = "SELECT {length}(Data) FROM DocumentData WHERE DocId = ? AND Version = ?"
+chunk_query = "SELECT {substr}(Data, ?, ?) FROM DocumentData WHERE DocId = ? AND Version = ?"
+params = ["id", "version"]
+
+[sink]
+type = "filenet_graphql"
+
+[sink.options]
+endpoint = "https://cpe.example.com/content-services-graphql/graphql"
+repository = "OS1"
+auth = { type = "basic", username = "${FN_USER}", password = "${FN_PASSWORD}" }
+
+[mapping]
+folder = "/Migrated/{content_type}"
+classes = { POLICY = "PolicyDocument", CLAIM = "ClaimDocument" }
+properties = { CustomerNo = "CustomerNumber", PolicyNo = "PolicyNumber", _source_id = "MigrationSourceId" }
+
+[rolling]
+chunk_docs = 100000

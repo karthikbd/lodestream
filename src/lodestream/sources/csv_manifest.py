@@ -22,20 +22,28 @@ _DEFAULT_COLUMNS = {
 
 @register_source("csv_manifest")
 class CsvManifestSource(Source):
-    """options:
-        path: exports/*.csv              # glob; each CSV file is a partition (parallel scan)
-        content_root: /mnt/export/files  # relative `file` paths are resolved against this
-        delimiter: ","
-        encoding: utf-8-sig
-        columns:                         # your CSV header -> lodestream field
-          id: DocumentId
-          version: VersionNo
-          name: FileName
-          directory: FolderPath
-          file: StoragePath
-          modified: LastModified
-          content_type: DocType
-    Every other column becomes a metadata property."""
+    """A CSV listing exported from any system, plus the files on a share.
+
+        [source]
+        type = "csv_manifest"
+
+        [source.options]
+        path = "exports/*.csv"              # glob; each CSV file is a partition (parallel scan)
+        content_root = "/mnt/export/files"  # relative `file` paths are resolved against this
+        delimiter = ","
+        encoding = "utf-8-sig"
+
+        [source.options.columns]            # your CSV header -> lodestream field
+        id = "DocumentId"
+        version = "VersionNo"
+        name = "FileName"
+        directory = "FolderPath"
+        file = "StoragePath"
+        modified = "LastModified"
+        content_type = "DocType"
+
+    Every other column becomes a metadata property.
+    """
 
     def __init__(self, options=None, base_dir="."):
         super().__init__(options, base_dir)

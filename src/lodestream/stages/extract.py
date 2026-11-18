@@ -13,12 +13,16 @@ from .base import Stage
 
 @register_stage("extract")
 class ExtractStage(Stage):
-    """options:
-        staging_dir: /mnt/staging          (required; fast NAS/SSD near FileNet)
-        workers: 16
-        max_staged_bytes: 5e12             # pause extraction when this much is waiting to load
-        max_attempts: 3
-    Leave this step out to stream content straight from the source into FileNet."""
+    """Optional. Copies content into a staging area with SHA-256 checksums; leave it out to stream
+    content straight from the source into the target.
+
+        [[steps]]
+        name = "extract"
+        staging_dir = "/mnt/staging"        # fast NAS/SSD near the target (required)
+        workers = 8
+        max_staged_bytes = 5e12             # pause extraction when this much waits to be loaded
+        max_attempts = 3
+    """
 
     description = "Copy content from source to a fast staging area with SHA-256 checksums (optional; omit to stream directly)."
     writes_target = True

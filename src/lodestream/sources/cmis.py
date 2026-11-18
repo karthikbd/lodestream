@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
+from .._http import HttpClient, HttpError
 from ..models import DocumentRecord
 from ..registry import register_source
 from ..utils import jsonable, to_iso
@@ -22,27 +23,32 @@ def _ms_to_dt(value) -> Optional[datetime]:
 
 @register_source("cmis")
 class CmisSource(Source):
-    """options:
-        url: https://host/alfresco/api/-default-/public/cmis/versions/1.1/browser
-        repository_id: -default-        # optional; first repository if omitted
-        username: ${CMIS_USER}
-        password: ${CMIS_PASSWORD}
-        folders: ["/Sites/finance/documentLibrary", "/Shared"]   # each is a partition
-        include_versions: false
-        page_size: 500
-        verify_tls: true
-    content_type = cmis:objectTypeId (map it to a FileNet class in `mapping.classes`).
-    Non-cmis:* properties (custom metadata) become properties."""
+    """CMIS 1.1 browser-binding repositories. Uses only the Python standard library (urllib) and
+    talks only to ``url``.
+
+        [source]
+        type = "cmis"
+
+        [source.options]
+        url = "https://host/alfresco/api/-default-/public/cmis/versions/1.1/browser"
+        repository_id = "-default-"         # optional; first repository if omitted
+        username = "${CMIS_USER}"
+        password = "${CMIS_PASSWORD}"
+        folders = ["/Sites/finance/documentLibrary", "/Shared"]   # each is a partition
+        include_versions = false
+        page_size = 500
+        verify_tls = true
+
+    content_type = cmis:objectTypeId (map it to a class in [mapping.classes]); non-cmis:* properties
+    (custom metadata) become properties.
+    """
 
     def __init__(self, options=None, base_dir="."):
         super().__init__(options, base_dir)
-        import requests
-
         o = self.options
-        self.session = o.get("_session") or requests.Session()
-        if o.get("username"):
-            self.session.auth = (o["username"], o.get("password", ""))
-        self.session.verify = o.get("verify_tls", True)
+        auth = {"type": "basic", "username": o["username"], "password": o.get("password", "")} \
+            if o.get("username") else None
+        self.client = HttpClient(auth=auth, verify=o.get("verify_tls", True), timeout=o.get("timeout", 600))
         self.page_size = int(o.get("page_size", 500))
         self.include_versions = bool(o.get("include_versions", False))
         info = self._get(o["url"])
@@ -50,8 +56,9 @@ class CmisSource(Source):
         self.root_url = info[repo_id]["rootFolderUrl"]
 
     def _get(self, url: str, **params) -> Any:
-        resp = self.session.get(url, params=params, timeout=self.options.get("timeout", 120))
-        resp.raise_for_status()
+        resp = self.client.get(url, params=params)
+        if resp.status >= 400:
+            raise HttpError(resp.status, resp.text)
         return resp.json()
 
     def partitions(self) -> List[str]:
@@ -114,9 +121,5 @@ class CmisSource(Source):
                         yield self._record(v, path, partition, total - i)
 
     def open_content(self, record: DocumentRecord):
-        resp = self.session.get(self.root_url, params={"objectId": record.source_ref["object_id"],
-                                                       "cmisselector": "content"},
-                                stream=True, timeout=self.options.get("timeout", 600))
-        resp.raise_for_status()
-        resp.raw.decode_content = True
-        return resp.raw
+        return self.client.open_stream(self.root_url, params={"objectId": record.source_ref["object_id"],
+                                                              "cmisselector": "content"})

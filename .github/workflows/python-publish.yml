@@ -21,8 +21,12 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
-      - run: pip install -e ".[dev]"
-      - run: python -m pytest tests/ -v --tb=short
+      - name: Install test tooling (hash-locked) and the package (no dependencies)
+        run: |
+          pip install --require-hashes -r ci/requirements-test.txt
+          pip install --no-deps -e .
+      - name: Run test suite
+        run: python -m pytest tests/ -v --tb=short
 
   build:
     needs: test
@@ -38,13 +42,29 @@ jobs:
           python-version: "3.11"
       - name: Build distribution
         run: |
-          pip install build twine
+          pip install --require-hashes -r ci/requirements-build.txt
           python -m build
-          twine check dist/*
+      - name: Check the wheel declares no runtime dependencies
+        run: |
+          python - <<'PY'
+          import glob, zipfile
+          whl = glob.glob("dist/*.whl")[0]
+          meta = next(n for n in zipfile.ZipFile(whl).namelist() if n.endswith("METADATA"))
+          reqs = [l for l in zipfile.ZipFile(whl).read(meta).decode().splitlines()
+                  if l.startswith("Requires-Dist") and "extra ==" not in l]
+          assert not reqs, reqs
+          print("no runtime dependencies:", whl)
+          PY
+      - name: Software bill of materials (CycloneDX, declares the vendored driver)
+        run: python ci/make_sbom.py sbom/lodestream.cdx.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom/
 
   publish:
     needs: build
@@ -76,8 +96,12 @@ jobs:
         with:
           name: dist
           path: dist/
-      - name: Sign with Sigstore and attach wheel and sdist to the release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom
+          path: dist/
+      - name: Sign with Sigstore and attach wheel, sdist, SBOM and signatures to the release
         uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0
         with:
-          inputs: ./dist/*.whl ./dist/*.tar.gz
+          inputs: ./dist/*.whl ./dist/*.tar.gz ./dist/*.cdx.json
           release-signing-artifacts: true

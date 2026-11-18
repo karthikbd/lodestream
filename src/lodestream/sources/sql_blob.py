@@ -25,7 +25,8 @@ from typing import Any, Dict, Iterator, List, Optional
 
 from ..models import DocumentRecord
 from ..registry import register_source
-from ..utils import import_object, jsonable, require_dt, to_iso
+from ..drivers import connect
+from ..utils import jsonable, require_dt, to_iso
 from .base import Source
 
 DIALECTS = {
@@ -69,25 +70,42 @@ class SqlBlobReader(io.RawIOBase):
 
 @register_source("sql_blob")
 class SqlBlobSource(Source):
-    """options:
-        driver: pyodbc | sqlite3 | factory      (default pyodbc)
-        connection_string: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=...;DATABASE=...;"
-        database: path.db                          (sqlite3 driver)
-        connection_factory: "mypkg.db:connect"     (factory driver; returns a DB-API connection)
-        dialect: mssql | sqlite | postgres | oracle
-        paramstyle: qmark | format                 (format = %s placeholders, e.g. psycopg2)
-        partitions_query: "SELECT DISTINCT FolderId FROM Docs"   (optional)
-        documents_queries:                         (each gets the partition as its first ? param)
-          - sql: "SELECT DocId AS id, Ver AS version, FileName AS name ... WHERE FolderId = ? {since_filter}"
-            since_column: d.Modified
-        content:
-          default:
-            length_query: "SELECT {length}(Data) FROM Blobs WHERE DocId = ? AND Ver = ?"
-            chunk_query:  "SELECT {substr}(Data, ?, ?) FROM Blobs WHERE DocId = ? AND Ver = ?"
-            params: [id, version]                  # chunk params are (start, length, *params)
-          # or, for small files only:  blob_query: "SELECT Data FROM Blobs WHERE DocId = ?"
-        chunk_size_mb: 8
-    Rows may return a ``ref_kind`` column to pick a different `content` entry per row."""
+    """Any database that stores file content as BLOBs. SQL Server is reached with the bundled driver
+    (or pyodbc, if already installed); other databases through ``connection_factory``.
+
+        [source]
+        type = "sql_blob"
+
+        [source.options]
+        driver = "auto"                     # auto | pytds | pyodbc | sqlite3 | factory
+        host = "legacydb"                   # SQL Server: host, port, instance, database, user
+        port = 1433
+        database = "DMS"
+        user = "dms_reader"
+        password_env = "DMS_DB_PASSWORD"    # or password_file (wins, e.g. a Secret mount) or password
+        encrypt = "optional"                # off | optional | required
+        trust_server_certificate = false    # also: ca_file, hostname_in_certificate, login_timeout, query_timeout
+        # connection_string / odbc_driver   (pyodbc only)
+        # connection_factory = "mypkg.db:connect"   (any other DB-API database)
+        dialect = "mssql"                   # mssql | sqlite | postgres | oracle ({substr}/{length} tokens)
+        paramstyle = "qmark"                # format = %s placeholders (e.g. psycopg2)
+        partitions_query = "SELECT DISTINCT CabinetId FROM Documents"   # optional
+        chunk_size_mb = 8
+
+        [[source.options.documents_queries]]   # each gets the partition as its first ? parameter
+        sql = "SELECT DocId AS id, Ver AS version, FileName AS name ... WHERE CabinetId = ? {since_filter}"
+        since_column = "d.Modified"
+
+        [source.options.content.default]     # chunk params are (start, length, *params)
+        length_query = "SELECT {length}(Data) FROM Blobs WHERE DocId = ? AND Ver = ?"
+        chunk_query = "SELECT {substr}(Data, ?, ?) FROM Blobs WHERE DocId = ? AND Ver = ?"
+        params = ["id", "version"]
+        # or, for small files only:  blob_query = "SELECT Data FROM Blobs WHERE DocId = ?"
+
+    Result columns: id (required), version, name, directory, size, modified, content_type, partition;
+    ref_* columns are kept to fetch content (ref_kind picks a [content.<kind>] entry); every other
+    column becomes a metadata property.
+    """
 
     default_options: Dict[str, Any] = {}
 
@@ -113,18 +131,7 @@ class SqlBlobSource(Source):
 
     # -------------------------------------------------------------- connections
     def _connect(self):
-        o = self.options
-        driver = o.get("driver", "factory" if o.get("connection_factory") else "pyodbc")
-        if driver == "factory" or o.get("connection_factory"):
-            factory = o["connection_factory"]
-            factory = import_object(factory) if isinstance(factory, str) else factory
-            return factory()
-        if driver == "sqlite3":
-            import os
-            import sqlite3
-            return sqlite3.connect(os.path.join(self.base_dir, o["database"]))
-        import pyodbc  # noqa: WPS433  (optional dependency)
-        return pyodbc.connect(o["connection_string"], autocommit=True)
+        return connect(self.options, self.base_dir)
 
     def _conn(self):
         conn = getattr(self._local, "conn", None)

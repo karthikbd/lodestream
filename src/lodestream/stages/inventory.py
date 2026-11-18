@@ -13,7 +13,15 @@ from .base import Stage
 
 @register_stage("inventory")
 class InventoryStage(Stage):
-    description = "Scan the source (partitions in parallel) and register every document/version in the manifest."
+    """Scans the source, partitions in parallel, and registers every document version as PENDING.
+    Re-running it adds only versions not seen before.
+
+        [[steps]]
+        name = "inventory"
+        workers = 4
+        batch_size = 2000                   # manifest insert batch
+        since = "2026-01-01T00:00:00"       # optional: only items modified after this time
+    """
 
     def _since(self, ctx):
         return parse_dt(self.options.get("since")) if self.options.get("since") else None
@@ -65,8 +73,15 @@ class InventoryStage(Stage):
 
 @register_stage("delta")
 class DeltaStage(InventoryStage):
-    description = ("Re-scan only items changed since the last inventory/delta run (for the final "
-                   "catch-up before cutover). Follow it with filter/extract/load/verify.")
+    """Re-scans only items changed since the last inventory or delta run, for the final catch-up
+    before cutover. A changed document becomes a new version of the one already in the target.
+    Follow it with filter, extract, load and verify.
+
+        [[steps]]
+        name = "delta"
+        overlap_minutes = 10                # re-check this much before the last run (clock skew)
+        since = "2026-06-01T00:00:00"       # optional: explicit start instead of the last run
+    """
 
     def _since(self, ctx):
         if self.options.get("since"):

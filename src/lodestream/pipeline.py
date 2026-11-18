@@ -5,7 +5,7 @@ import os
 import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .config import load_config, normalize_steps
+from .config import TOP_LEVEL_KEYS, check_keys, load_config, normalize_steps
 from .manifest import Manifest
 from .mapping import Mapper
 from .models import Status
@@ -42,16 +42,21 @@ class Context:
 
 
 class Migration:
-    """Programmatic entry point::
+    """A configured migration: the programmatic entry point.
+
+    Example::
 
         from lodestream import Migration
-        m = Migration.from_file("migration.yaml")
+        m = Migration.from_file("migration.toml")
         m.run()                                  # steps from the config
         m.run(steps=["delta", "load", "verify"]) # or choose steps dynamically
+
+    ``config`` is the parsed configuration; relative paths in it are resolved against ``base_dir``.
     """
 
     def __init__(self, config: Dict[str, Any], base_dir: str = "."):
         load_builtins()
+        check_keys(config, TOP_LEVEL_KEYS, "the config file")
         self.config = config
         self.base_dir = os.path.abspath(base_dir)
         for plugin in config.get("plugins", []) or []:

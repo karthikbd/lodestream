@@ -1,0 +1,61 @@
+name: End-to-end (SQL Server)
+
+# Runs the e2e suite against a real SQL Server holding a WSS 3.0-shaped content database, for each
+# SQL Server version, the same setup as tests/e2e/docker-compose.yml: the bundled driver streams
+# BLOBs (including a 30 MB file) and documents are uploaded over HTTP to a FileNet stand-in,
+# then a delta run picks up an edit made after the bulk load.
+on:
+  push:
+    branches: ["main", "release/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: e2e SQL Server ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["2019-latest", "2022-latest", "2025-latest"]
+    env:
+      SQL_IMAGE: mcr.microsoft.com/mssql/server:${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install test tooling (hash-locked) and the package (no dependencies)
+        run: |
+          pip install --require-hashes -r ci/requirements-test.txt
+          pip install --no-deps -e .
+      - name: Start SQL Server
+        run: docker compose -f tests/e2e/docker-compose.yml up -d
+      - name: Wait until the server accepts connections
+        run: |
+          for i in $(seq 1 90); do
+            if docker compose -f tests/e2e/docker-compose.yml logs sql 2>&1 \
+                 | grep -q "SQL Server is now ready for client connections"; then
+              echo "ready"; break
+            fi
+            sleep 2
+          done
+          sleep 10
+      - name: Run the end-to-end suite
+        env:
+          LODESTREAM_E2E: "1"
+        run: python -m pytest tests/e2e -v --tb=short -s -o faulthandler_timeout=900
+      - name: Server logs on failure
+        if: failure() || cancelled()
+        run: docker compose -f tests/e2e/docker-compose.yml logs --tail 200

@@ -16,12 +16,15 @@ ROOT_PARTITION = "(root)"
 
 @register_source("filesystem")
 class FilesystemSource(Source):
-    """options:
-        root: /mnt/share/legal            (required)
-        exclude_hidden: true
-        follow_symlinks: false
-    Each top-level sub-folder is a partition, scanned in parallel.
-    A changed file (new mtime) becomes a new version of the same document."""
+    """File shares, NFS or SMB mounts, local disks.
+
+        [source]
+        type = "filesystem"
+        options = { root = "/mnt/share/legal", exclude_hidden = true, follow_symlinks = false }
+
+    Each top-level sub-folder is a partition, scanned in parallel. A changed file (new mtime)
+    becomes a new version of the same document.
+    """
 
     def __init__(self, options=None, base_dir="."):
         super().__init__(options, base_dir)

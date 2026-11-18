@@ -11,7 +11,7 @@ from .sinks.base import LoadItem, LoadResult, Sink
 from .sources.base import Source
 from .stages.base import Stage
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Migration", "DocumentRecord", "Status", "Source", "Sink", "Stage", "LoadItem", "LoadResult",

@@ -38,15 +38,18 @@ class _Series:
 
 @register_stage("load")
 class LoadStage(Stage):
-    """options:
-        workers: 16                 # parallel loader threads (scale with CPE nodes)
-        batch_size: 50              # documents per API round trip
-        max_batch_mb: 256           # large files go in smaller batches
-        series_per_task: 50         # version series handed to a worker at once
-        max_attempts: 3
-        retry_failed: true          # pick up FAILED items with attempts < max_attempts
-    Versions of one document are always loaded oldest -> newest; different
-    documents load fully in parallel."""
+    """Creates documents and versions in the target, in parallel, batched API calls. Versions of
+    one document always load oldest to newest; different documents load fully in parallel.
+
+        [[steps]]
+        name = "load"
+        workers = 8                         # parallel loader threads (scale with target nodes)
+        batch_size = 50                     # documents per API round trip
+        max_batch_mb = 256                  # large files go in smaller batches
+        series_per_task = 50                # version series handed to a worker at once
+        max_attempts = 3
+        retry_failed = true                 # pick up FAILED items with attempts < max_attempts
+    """
 
     description = "Create documents/versions in the target in parallel, batched API calls (streams from source if extract was skipped)."
     writes_target = True

@@ -39,15 +39,30 @@ WHERE d.Type = 0 AND d.ListId = ?{since_filter}"""
 
 @register_source("wss_sql")
 class WssSqlSource(SqlBlobSource):
-    """options (in addition to sql_blob connection options):
-        include_versions: true          # migrate version history (AllDocVersions)
-        userdata_columns:               # AllUserData column -> property name
-          nvarchar1: Title
-          datetime1: InvoiceDate
-          tp_ContentType: ContentType
-        site_ids: [..]                  # optional: restrict to these site collections
-        list_ids: [..]                  # optional: restrict to these document libraries
-    Partitions = document libraries (ListId); content_type = library title."""
+    """Windows SharePoint Services 3.0 / MOSS 2007 content databases (a preset of ``sql_blob``).
+    Read a restored copy of the content database, never the live one. Accepts every sql_blob
+    connection option, plus:
+
+        [source]
+        type = "wss_sql"
+
+        [source.options]
+        host = "sqlstage01"
+        database = "WSS_Content_Restored"
+        user = "lodestream_reader"
+        password_env = "WSS_DB_PASSWORD"
+        include_versions = true             # migrate version history (AllDocVersions)
+        content_type_field = "ContentType"  # property that picks the target class
+        site_ids = []                       # optional: restrict to these site collections
+        list_ids = []                       # optional: restrict to these document libraries
+
+        [source.options.userdata_columns]   # AllUserData column -> property name
+        nvarchar1 = "Title"
+        tp_ContentType = "ContentType"
+
+    Partitions are document libraries (ListId); content_type is the library title unless
+    content_type_field is set; _version_label is the SharePoint version (e.g. "3.0").
+    """
 
     def __init__(self, options=None, base_dir="."):
         options = dict(options or {})
