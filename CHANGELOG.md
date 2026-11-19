@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-11-19)
 
 - **Security:** the `local_folder` sink built output paths from document folder and file names taken from
   the source, so a name such as `../../x` could write outside the configured `root`. Path components
