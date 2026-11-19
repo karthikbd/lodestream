@@ -4,7 +4,7 @@ name: End-to-end
 #   sqlserver -- a WSS 3.0-shaped content database on SQL Server 2019 / 2022 / 2025, read with the
 #                bundled driver and with pyodbc + Microsoft ODBC Driver 18: pre-flight check, a 30 MB
 #                BLOB streamed in chunks, version history, upload over HTTP to a FileNet stand-in, delta.
-#   s3        -- the s3 source against MinIO (with object versions and a 25 MB object).
+#   s3        -- the s3 source against a Moto S3 server (object versions, a 25 MB object).
 #   cmis      -- the cmis source against Alfresco Community (CMIS 1.1 browser binding, version history).
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
         if: matrix.driver == 'pyodbc'
         run: |
           if ! odbcinst -q -d 2>/dev/null | grep -q "ODBC Driver 18 for SQL Server"; then
-            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
             curl -fsSL "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/mssql-release.list
             sudo apt-get update
             sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
@@ -76,7 +76,7 @@ jobs:
         run: docker compose -f tests/e2e/docker-compose.yml logs --tail 200
 
   s3:
-    name: S3 source (MinIO)
+    name: S3 source (Moto S3 server)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -92,18 +92,17 @@ jobs:
           pip install --require-hashes -r ci/requirements-test.txt
           pip install --require-hashes -r ci/requirements-e2e.txt
           pip install --no-deps -e .
-      - name: Start MinIO (4 drives, so object versioning is available)
+      - name: Start the S3 server
         run: |
-          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:latest server /data{1...4}
-          for i in $(seq 1 60); do curl -fs http://127.0.0.1:9000/minio/health/ready && break; sleep 2; done
+          nohup moto_server -H 127.0.0.1 -p 9000 > moto.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:9000/ >/dev/null && break; sleep 1; done
       - name: Run the S3 end-to-end test
         env:
           LODESTREAM_E2E_S3: "1"
         run: python -m pytest tests/e2e/test_e2e_s3.py -v --tb=short
-      - name: Server logs on failure
+      - name: Server log on failure
         if: failure() || cancelled()
-        run: docker logs minio --tail 200
+        run: tail -100 moto.log
 
   cmis:
     name: CMIS source (Alfresco Community)

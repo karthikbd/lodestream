@@ -1,3 +1,5 @@
-# Optional modules lodestream uses if already installed, exercised by the e2e suite only.
+# Optional modules lodestream uses if already installed, exercised by the e2e suite only,
+# plus Moto's S3 server for the s3 source test (MinIO no longer publishes container images).
 pyodbc>=5
 boto3>=1.34
+moto[server]>=5

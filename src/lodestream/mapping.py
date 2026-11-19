@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import re
+import string
 from typing import Any, Dict, Optional, Tuple
 
-from .config import MAPPING_KEYS, check_keys
+from .config import MAPPING_KEYS, ConfigError, check_keys
 from .models import DocumentRecord
 from .utils import require_dt
 
@@ -28,13 +29,32 @@ def _convert(value: Any, spec: Dict[str, Any]) -> Any:
         out = value if isinstance(value, bool) else str(value).strip().lower() in ("1", "true", "yes", "y")
     elif kind in ("datetime", "date"):
         dt = require_dt(value)
-        out = dt.strftime("%Y-%m-%dT%H:%M:%SZ") if kind == "datetime" else dt.strftime("%Y-%m-%d")
+        out = dt.replace(microsecond=0).isoformat() + "Z" if kind == "datetime" else dt.date().isoformat()
     else:
         raise ValueError(f"Unknown property type {kind!r}")
     max_len = spec.get("max_length")
     if max_len and isinstance(out, str):
         out = out[: int(max_len)]
     return out
+
+
+_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _check_template(template: str) -> None:
+    """Folder templates may only use plain ``{field}`` placeholders (no indexing, attributes,
+    format specs or conversions), so a bad template fails at start-up, not on every document."""
+    try:
+        parts = list(string.Formatter().parse(template))
+    except ValueError as exc:
+        raise ConfigError(f"[mapping] folder template {template!r}: {exc} (use {{{{ and }}}} for literal braces)") from None
+    for _, name, spec, conv in parts:
+        if name is None:
+            continue
+        if not _FIELD.fullmatch(name) or spec or conv:
+            raise ConfigError(f"[mapping] folder template {template!r}: placeholder {{{name}{':' + spec if spec else ''}}} "
+                              "is not allowed; use plain names such as {directory}, {partition}, {content_type}, "
+                              "{name} or a property name")
 
 
 class Mapper:
@@ -71,6 +91,8 @@ class Mapper:
         self.passthrough = bool(cfg.get("passthrough_unmapped", False))
         self.title_property = cfg.get("title_property", "DocumentTitle")
         self.folder = cfg.get("folder")
+        if self.folder:
+            _check_template(self.folder)
         self.strip_prefixes = [p.strip("/") for p in cfg.get("strip_path_prefixes", []) or []]
 
     def _directory(self, record: DocumentRecord) -> str:

@@ -60,7 +60,7 @@ def to_iso(value: Any) -> str:
     if value is None or value == "":
         return ""
     try:
-        return require_dt(value).strftime("%Y-%m-%dT%H:%M:%S")
+        return require_dt(value).replace(microsecond=0).isoformat()   # 4-digit year, even before 1000
     except (ValueError, AttributeError):
         return str(value)
 

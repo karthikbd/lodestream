@@ -2,7 +2,7 @@
 # no transforms, no messaging -- only what CMIS needs.
 services:
   alfresco:
-    image: alfresco/alfresco-content-repository-community:23.4.0
+    image: alfresco/alfresco-content-repository-community:26.2.0
     mem_limit: 3g
     environment:
       JAVA_TOOL_OPTIONS: >-

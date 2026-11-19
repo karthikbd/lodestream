@@ -11,7 +11,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
-_TOKEN = re.compile(r'\s*(\$?[A-Za-z_][A-Za-z0-9_]*|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|[{}\[\]():,!=@])')
+_TOKEN = re.compile(r'(?:\s|#[^\n]*)*(\$?[A-Za-z_][A-Za-z0-9_]*|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|[{}\[\]():,!=@])')
+_TRAILING = re.compile(r'(?:\s|#[^\n]*)*\Z')
 
 TYPE_REF = "kind name ofType { kind name ofType { kind name ofType { kind name ofType { kind name } } } }"
 TYPE_QUERY = ("query { __type(name: %s) { kind name "
@@ -39,9 +40,8 @@ class Field:
 
 def tokenize(text: str) -> List[str]:
     tokens, pos = [], 0
-    text = re.sub(r"#[^\n]*", "", text)
     while pos < len(text):
-        if text[pos:].strip() == "":
+        if _TRAILING.match(text, pos):     # only whitespace / comments left (comments never inside strings)
             break
         m = _TOKEN.match(text, pos)
         if not m:

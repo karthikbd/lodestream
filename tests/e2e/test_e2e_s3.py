@@ -1,7 +1,7 @@
-"""End-to-end test of the ``s3`` source against a real S3-compatible server (MinIO).
+"""End-to-end test of the ``s3`` source against an S3 server over HTTP (Moto's server in CI; any
+S3-compatible endpoint with versioning works).
 
-    docker run -d -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \\
-        minio/minio server /data{1...4}           # 4 drives: object versioning needs erasure coding
+    pip install "moto[server]" boto3 && moto_server -p 9000 &
     LODESTREAM_E2E_S3=1 pytest tests/e2e/test_e2e_s3.py -v
 
 boto3 must be installed (lodestream never installs it).

@@ -85,3 +85,29 @@ def test_graphql_parser_and_validator():
     assert any("CONTENT_BLOB is not a value" in e for e in errors)
     assert any("title: no such input field" in e for e in errors)
     assert any("size: no such field on Document" in e for e in errors)
+
+
+def test_regressions_found_by_fuzzing():
+    """Found by tests/fuzz: years before 1000 lost their 4-digit form; '#' inside a GraphQL string
+    was taken for a comment."""
+    from lodestream.mapping import _convert
+    from lodestream.sinks.filenet_graphql import gql_literal
+    from lodestream.utils import parse_dt, to_iso
+
+    dt = parse_dt("0111-11-11T11:11:11")
+    assert to_iso(dt) == "0111-11-11T11:11:11" and parse_dt(to_iso(dt)) == dt
+    assert _convert("0099-01-02T03:04:05", {"type": "datetime"}) == "0099-01-02T03:04:05Z"
+    assert _convert("0099-01-02", {"type": "date"}) == "0099-01-02"
+    f = gql.parse_operation(f"query {{ folder(identifier: {gql_literal('/#Archive')}) {{ id }} }}")[0]
+    assert f.args == {"identifier": "/#Archive"}
+
+
+def test_bad_folder_templates_fail_at_startup():
+    import pytest
+    from lodestream.config import ConfigError
+    from lodestream.mapping import Mapper
+
+    for bad in ["/x/{@[{]}", "/x/{a.b}", "/x/{0}", "/x/{name!r}", "/x/{name:>10}", "/x/{", "/x/{}"]:
+        with pytest.raises(ConfigError, match="folder template"):
+            Mapper({"folder": bad})
+    Mapper({"folder": "/Migrated/{partition}/{directory}/{{literal}}"})
