@@ -51,7 +51,25 @@ report = "./state/report.json"
 Every key is listed in {doc}`/reference/config`, and every source, sink and step option in
 {doc}`/reference/plugins`.
 
-## 2. Find out what is there
+## 2. Check the connections
+
+```console
+$ lodestream check -c migration.toml
+[OK  ] config  steps
+[OK  ] source  list partitions
+         3 partition(s): (root), Finance, HR
+[OK  ] source  read 5 sample record(s)
+[OK  ] source  stream one document's content
+[OK  ] sink    output folder writable
+
+5 passed, 0 warning(s), 0 failed
+```
+
+`check` is read-only. Against SQL sources it also runs every configured query against the real
+schema, and against FileNet it validates every GraphQL operation the sink will send against the
+server's own schema and checks the mapped classes and properties. Run it first on every new system.
+
+## 3. Find out what is there
 
 ```console
 $ lodestream run -c migration.toml --dry-run --rate 300
@@ -74,7 +92,7 @@ is written. `--rate` (documents per second) and `--gbps` (link speed) turn the c
 estimate. On a real share this is where you learn how many documents and versions there are,
 and what the filter removes.
 
-## 3. Migrate
+## 4. Migrate
 
 ```console
 $ lodestream run -c migration.toml
@@ -100,7 +118,7 @@ $ cat out/Migrated/Finance/2024/q3-report.pdf.meta.json
 }
 ```
 
-## 4. Check the status
+## 5. Check the status
 
 ```console
 $ lodestream status -c migration.toml
@@ -116,7 +134,7 @@ Recent runs:
 
 `state/report.json` holds the same totals, broken down by partition, for sign-off.
 
-## 5. Switch to FileNet
+## 6. Switch to FileNet
 
 Replace the sink, delete `state/` (it describes the local run) and run again:
 
@@ -132,6 +150,7 @@ auth = { type = "basic", username = "${FN_USER}", password = "${FN_PASSWORD}" }
 
 ```console
 $ export FN_USER=... FN_PASSWORD=...
+$ lodestream check -c migration.toml     # connection, GraphQL schema, classes, properties
 $ lodestream run -c migration.toml
 ```
 
@@ -140,7 +159,7 @@ Create the `MigrationSourceId` string property on the target class first, or rem
 an `include_patterns` filter on one folder) and check the result in Administration Console
 before the bulk run; see {doc}`/user_guide/filenet`.
 
-## 6. Before the cut-over
+## 7. Before the cut-over
 
 Users kept working while the bulk ran. Pick up their changes, as new versions of the documents
 already in FileNet:

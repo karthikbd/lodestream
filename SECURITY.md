@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.2.x   | ✅ Active  |
-| 0.1.x   | ❌         |
+| 0.3.x   | ✅ Active  |
+| < 0.3   | ❌         |
 
 ## Reporting a Vulnerability
 
@@ -54,7 +54,8 @@ The `filesystem` and `csv_manifest` sources only read local or mounted files.
 
 - Every CI `pip install` is hash-locked (`ci/requirements-*.txt`); every GitHub Action is pinned to a commit SHA.
 - `vulnerability-audit.yml`: `pip-audit` of the vendored python-tds and all CI tooling, weekly and on every change.
-- CodeQL and OpenSSF Scorecard on every push to `main` and weekly; Dependabot for actions and CI tooling.
+- CodeQL and OpenSSF Scorecard on every push to `main` and weekly; Dependabot for actions, CI tooling and the fuzzing image.
+- ClusterFuzzLite fuzzing (Atheris) of config, mapping and GraphQL parsing on every pull request, push and daily.
 - Releases: PyPI Trusted Publishing with provenance attestations; Sigstore-signed wheel, sdist and a
   CycloneDX SBOM (declaring the vendored driver) attached to each GitHub release, re-verified by
   `verify-release.yml`.

@@ -89,12 +89,15 @@ min_size = 1
 
 The built-in queries follow the WSS 3.0 schema. Patch levels and later SharePoint versions differ
 in places (SharePoint 2010+ uses `varbinary(max)` and can keep content outside the database with
-RBS). Run `--steps inventory,filter` on one library first and compare the counts with the library
-in SharePoint. Every query can be overridden in the config with the `sql_blob` options
+RBS). `lodestream check` runs every built-in query against your restored database (with
+`WHERE 1 = 0`, so it is instant) and names any missing table or column; it then reads sample rows
+and streams one BLOB of each kind. Then run `--steps inventory,filter` on one library and compare the
+counts with the library in SharePoint. Every query can be overridden in the config with the `sql_blob` options
 (`partitions_query`, `documents_queries`, `content`), see {doc}`sources`.
 
 ## Tested
 
 The end-to-end suite (`tests/e2e`) creates a WSS 3.0-shaped database on SQL Server 2019, 2022 and
-2025 in CI, reads it with the bundled driver (including a 30 MB file and version history), loads it
-over HTTP and runs a delta after an edit.
+2025 in CI and migrates it twice, once with the bundled driver and once with pyodbc + Microsoft ODBC
+Driver 18: `check` must be all green, then a 30 MB file, version history and list metadata are loaded
+over HTTP and a delta picks up an edit made after the bulk run.

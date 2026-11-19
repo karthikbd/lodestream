@@ -134,7 +134,7 @@ def sha256_file(path: str, chunk: int = 8 * 1024 * 1024) -> str:
 
 
 def short_hash(text: str, n: int = 10) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:n]
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:n]
 
 
 def safe_filename(text: str, max_len: int = 120) -> str:

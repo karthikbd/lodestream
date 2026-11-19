@@ -1,5 +1,26 @@
 # Release notes
 
+## 0.3.0 (November 2026)
+
+- **`lodestream check`**: read-only pre-flight against the real systems.
+  - Source: every configured SQL query is run against the actual schema (a missing table or column is
+    named before anything moves), sample records are read, and one document per content kind is streamed.
+  - FileNet: connection and authentication; the server's GraphQL schema is read by introspection and every
+    operation, argument, input field and enum value the sink will send (including overridden templates) is
+    validated against it; the object store answers; mapped classes and properties exist.
+- **End-to-end tests against more real systems**: pyodbc + Microsoft ODBC Driver 18 on SQL Server
+  2019/2022/2025, an S3 server (with versions), and Alfresco Community over CMIS (with version history).
+- **Fuzzing** with ClusterFuzzLite (Atheris) on every pull request, push and daily. It found and this
+  release fixes:
+  - dates before year 1000 were written with a 3-digit year that could not be read back;
+  - a `#` inside a GraphQL string value was taken for a comment by the check parser;
+  - malformed `[mapping] folder` templates (`{a.b}`, `{0}`, `{x:>5}`...) failed on every document
+    instead of at start-up; they are now rejected with a clear message;
+  - the check parser's comment skipping could backtrack exponentially.
+- `CONTRIBUTING.md`; `main` is protected against force pushes and deletion.
+- Short name suffixes use SHA-256 instead of SHA-1 (suffixes differ from 0.2.0).
+- OpenSSF Best Practices passing badge; private vulnerability reporting enabled.
+
 ## 0.2.0 (November 2026)
 
 **Same supply-chain standard as mssql-ocp-migrate.**

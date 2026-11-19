@@ -13,6 +13,7 @@ choosing
 ```console
 $ pip install lodestream
 $ lodestream init wss_to_filenet -o migration.toml     # or fileshare / csv / cmis / s3 / sql
+$ lodestream check -c migration.toml                  # prove the source and FileNet work (read-only)
 $ lodestream run -c migration.toml --dry-run --rate 300 --gbps 10   # what is there, how long will it take?
 $ lodestream run -c migration.toml                     # inventory → filter → extract → load → verify
 $ lodestream status -c migration.toml

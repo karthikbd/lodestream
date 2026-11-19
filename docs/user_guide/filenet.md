@@ -36,6 +36,26 @@ create_folders = true
 
 ## Before the bulk run
 
+Run the pre-flight check against the real server first:
+
+```console
+$ lodestream check -c migration.toml
+[OK  ] sink    connect and authenticate (https://cpe.example.com/content-services-graphql/graphql)
+[OK  ] sink    read the GraphQL schema
+[OK  ] sink    GraphQL create document (createDocument) matches this server
+[FAIL] sink    GraphQL check in (checkinDocument) matches this server
+         Mutation.checkinDocument(documentProperties:).contentElements.replace[].type: CONTENT_TRANSFER is
+         not a value of ContentElementType (has: CONTENT_REFERENCE, CONTENT_UPLOAD) -- override the template
+[OK  ] sink    object store reachable
+[OK  ] mapping class Invoice and its mapped properties exist
+```
+
+It reads the server's GraphQL schema by introspection and validates every operation, argument,
+input field and enum value the sink will send, including templates you override. It also checks
+that the object store answers and that each mapped class and property exists. Nothing is created.
+
+Then:
+
 1. Create a string property `MigrationSourceId` on the target classes and map `_source_id` to it
    (see {doc}`mapping`).
 2. Create the target classes and properties you map to; lodestream does not change the FileNet
@@ -56,8 +76,9 @@ create_folders = true
 ## GraphQL differences between releases
 
 The field and argument names used follow the Content Services GraphQL documentation, but they vary
-slightly between FileNet and CP4BA releases. If the pilot reports a GraphQL error, open GraphiQL at
-your endpoint, compare, and override the template in the config:
+slightly between FileNet and CP4BA releases. `lodestream check` names any mismatch exactly (operation,
+argument, input field or enum value, with what the server has instead); override the template in the
+config and run `check` again until it is clean:
 
 | Option | Default operation |
 |---|---|
@@ -66,6 +87,7 @@ your endpoint, compare, and override the template in the config:
 | `checkin_template` | `checkinDocument(repositoryIdentifier, identifier, documentProperties, checkinAction)` |
 | `verify_template` | `document(repositoryIdentifier, identifier) { id contentSize }` |
 | `folder_get_template`, `folder_create_template` | `folder(...)`, `createFolder(...)` |
+| `class_template` | `classDescription(...) { propertyDescriptions { symbolicName } }` (used by `check`) |
 
 Templates use `<<placeholders>>` (for example `<<alias>>`, `<<repository>>`, `<<class>>`, `<<name>>`,
 `<<properties>>`, `<<var>>`); the defaults are in `lodestream/sinks/filenet_graphql.py`.

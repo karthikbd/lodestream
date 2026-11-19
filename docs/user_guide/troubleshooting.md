@@ -1,6 +1,7 @@
 # Troubleshooting
 
-Start with `lodestream status -c migration.toml`, then look at the failed items' errors. The
+Before a run, `lodestream check -c migration.toml` finds most problems below without moving anything.
+During and after a run, start with `lodestream status -c migration.toml`, then look at the failed items' errors. The
 manifest is a SQLite file you can query directly:
 
 ```console

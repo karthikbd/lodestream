@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lodestream"
-version = "0.2.0"
+version = "0.3.0"
 description = "Bulk content migration from any source (WSS/SharePoint, file shares, SQL BLOBs, CSV exports, S3, CMIS) into IBM FileNet: pluggable, restartable, built for 100 TB+. Zero dependencies: the SQL Server driver is bundled."
 readme = "README.md"
 requires-python = ">=3.10"

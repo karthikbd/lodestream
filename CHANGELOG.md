@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 (2026-11-18)
+
+- New `lodestream check`: read-only pre-flight. Validates every SQL query against the real schema,
+  samples records and streams content; validates every FileNet GraphQL operation against the server's
+  introspected schema, the object store, and mapped classes and properties.
+- End-to-end CI against pyodbc + ODBC Driver 18, an S3 server and Alfresco (CMIS).
+- ClusterFuzzLite fuzzing; fixes for what it found: 4-digit years before 1000, `#` in GraphQL strings,
+  folder templates validated at start-up, linear comment skipping in the check parser.
+- CI tool locks no longer pin vulnerable versions for Python versions their jobs never use.
+- Short name suffixes (truncated names, local-folder name clashes) use SHA-256 instead of SHA-1, so
+  those suffixes differ from 0.2.0. No SHA-1 or MD5 is used anywhere.
+- Private vulnerability reporting enabled; OpenSSF Best Practices passing badge.
+- CONTRIBUTING.md.
+
 ## 0.2.0 (2026-11-18)
 
 Same supply-chain standard as mssql-ocp-migrate.
