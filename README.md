@@ -9,6 +9,7 @@
 [![ClusterFuzzLite](https://github.com/karthikbd/lodestream/actions/workflows/cflite_batch.yml/badge.svg)](https://github.com/karthikbd/lodestream/actions/workflows/cflite_batch.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/karthikbd/lodestream/badge)](https://securityscorecards.dev/viewer/?uri=github.com/karthikbd/lodestream)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16911/badge)](https://www.bestpractices.dev/projects/16911)
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/16911/baseline)](https://www.bestpractices.dev/projects/16911/baseline-2)
 
 Move documents, with their versions and metadata, from **any content store into IBM FileNet**:
 WSS / SharePoint content databases, any SQL database holding files, file shares, CSV exports from
@@ -22,7 +23,7 @@ used if already installed; they are never required.
 
 ```
 pip install lodestream                                                  # from PyPI
-pip install --no-index --no-deps lodestream-0.3.0-py3-none-any.whl     # air-gapped: the one wheel
+pip install --no-index --no-deps lodestream-0.3.1-py3-none-any.whl     # air-gapped: the one wheel
 ```
 
 Documentation: **https://lodestream.readthedocs.io**

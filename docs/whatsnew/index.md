@@ -1,5 +1,20 @@
 # Release notes
 
+## 0.3.1 (November 2026)
+
+Security fixes found while writing the threat model, and the groundwork for the OpenSSF silver and
+baseline badges.
+
+- **`local_folder` sink path traversal.** Output paths were built from folder and file names taken from
+  the source, so a name such as `../../x` could write outside the configured `root`. Unsafe path
+  components are now refused (the item fails with a clear error) and every path is checked to stay
+  under `root`. The FileNet sink and staging were not affected.
+- **HTTP client** accepts only `http` and `https` URLs.
+- Governance, code of conduct, roadmap, a security assurance case, dependency and scanning policy,
+  support and end-of-life policy, and an OpenVEX document.
+- Reproducible builds (checked in CI), `mypy --strict`, `ruff` security rules, an 80% coverage floor,
+  DCO and dependency review on pull requests; `main` accepts changes only through pull requests.
+
 ## 0.3.0 (November 2026)
 
 - **`lodestream check`**: read-only pre-flight against the real systems.
