@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import abc
 from datetime import datetime
+import itertools
 from typing import Any, BinaryIO, Dict, Iterator, List, Optional
 
+from ..checks import CheckContext, CheckResult, run
 from ..models import DocumentRecord
 
 
@@ -49,3 +51,48 @@ class Source(abc.ABC):
 
     def close(self) -> None:
         pass
+
+    # ------------------------------------------------------------------ pre-flight
+    def check(self, cc: CheckContext) -> List[CheckResult]:
+        """Read-only checks for ``lodestream check``: partitions, sample records, one content read.
+        Subclasses add source-specific checks (e.g. SQL schema) and call ``super().check``."""
+        results: List[CheckResult] = []
+        parts: List[str] = []
+
+        def list_partitions():
+            parts.extend(self.partitions())
+            return f"{len(parts)} partition(s): {', '.join(map(str, parts[:5]))}{' ...' if len(parts) > 5 else ''}"
+
+        results.append(run("source", "list partitions", list_partitions))
+        if not parts:
+            return results
+        samples: List[DocumentRecord] = []
+
+        def sample_records():
+            for part in parts:
+                samples.extend(itertools.islice(self.iter_documents(part), cc.sample - len(samples)))
+                if len(samples) >= cc.sample:
+                    break
+            if not samples:
+                return "warn", "no documents found in any partition"
+            return "; ".join(f"{r.full_path} ({r.size:,} B, v{r.version_index})" for r in samples[:3])
+
+        results.append(run("source", f"read {cc.sample} sample record(s)", sample_records))
+        if samples:
+            results.append(run("source", "stream one document's content", lambda: self._check_content(samples[0])))
+        return results
+
+    def _check_content(self, record: DocumentRecord):
+        stream = self.open_content(record)
+        try:
+            total = 0
+            while True:
+                block = stream.read(1024 * 1024)
+                if not block:
+                    break
+                total += len(block)
+        finally:
+            stream.close()
+        if record.size and total != record.size:
+            return "warn", f"{record.full_path}: read {total:,} bytes, metadata says {record.size:,}"
+        return f"{record.full_path}: {total:,} bytes"

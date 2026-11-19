@@ -44,6 +44,22 @@ def cmd_run(args) -> int:
     return 2 if failed else 0
 
 
+_MARK = {"ok": "OK  ", "warn": "WARN", "skip": "SKIP", "fail": "FAIL"}
+
+
+def cmd_check(args) -> int:
+    results = Migration.from_file(args.config).check(sample=args.sample)
+    if args.json:
+        print(json.dumps([r.__dict__ for r in results], indent=2))
+    else:
+        for r in results:
+            print(f"[{_MARK[r.status]}] {r.area:<7} {r.name}" + (f"\n         {r.detail}" if r.detail else ""))
+        failed = sum(r.status == "fail" for r in results)
+        warned = sum(r.status == "warn" for r in results)
+        print(f"\n{len(results) - failed - warned} passed, {warned} warning(s), {failed} failed")
+    return 1 if any(r.status == "fail" for r in results) else 0
+
+
 def cmd_status(args) -> int:
     st = Migration.from_file(args.config).status()
     if args.json:
@@ -106,6 +122,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("steps", help="list available steps, sources and sinks")
     s.add_argument("-c", "--config", help="also list plugins declared in this config")
     s.set_defaults(func=cmd_steps)
+
+    s = sub.add_parser("check", help="pre-flight: prove the source and target work, read-only")
+    s.add_argument("-c", "--config", required=True, help="config file: .toml, .json, or .yaml if PyYAML is installed")
+    s.add_argument("--sample", type=int, default=5, help="sample records to read per query (default 5)")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_check)
 
     s = sub.add_parser("run", help="run the migration (all configured steps or --steps)")
     s.add_argument("-c", "--config", required=True, help="config file: .toml, .json, or .yaml if PyYAML is installed")

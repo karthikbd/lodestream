@@ -5,6 +5,7 @@ import os
 import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .checks import CheckContext, CheckResult, run as run_check
 from .config import TOP_LEVEL_KEYS, check_keys, load_config, normalize_steps
 from .manifest import Manifest
 from .mapping import Mapper
@@ -184,6 +185,36 @@ class Migration:
         except KeyboardInterrupt:
             self.stop_event.set()
             log.warning("Interrupted: stopping after in-flight work; rerun to resume.")
+        finally:
+            self.close()
+        return results
+
+    # ------------------------------------------------------------ pre-flight
+    def check(self, sample: int = 5) -> List[CheckResult]:
+        """Read-only pre-flight checks against the real source and target: connections, schemas,
+        sample records, one content read, and (FileNet) GraphQL operations, object store, classes
+        and properties. Nothing is written to the source, the target or the manifest."""
+        results: List[CheckResult] = []
+        results.append(run_check("config", "steps", lambda: " -> ".join(n for n, _ in self.plan())))
+        targets = [s["target"] for s in self.mapper.properties.values()]
+        if self.mapper.title_property:
+            targets.append(self.mapper.title_property)
+        classes = sorted({*self.mapper.classes.values(), self.mapper.default_class})
+        cc = CheckContext(sample=sample, classes={c: sorted(set(targets)) for c in classes})
+        try:
+            try:
+                source = self.source
+            except Exception as exc:  # noqa: BLE001
+                results.append(CheckResult("source", "configure source", "fail", f"{type(exc).__name__}: {exc}"))
+            else:
+                results.extend(source.check(cc))
+            try:
+                sink = self.sink
+            except Exception as exc:  # noqa: BLE001
+                results.append(CheckResult("sink", "configure sink", "fail", f"{type(exc).__name__}: {exc}"))
+            else:
+                results.extend(sink.check(cc))
+                self._sink_open = True
         finally:
             self.close()
         return results

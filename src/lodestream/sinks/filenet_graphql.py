@@ -16,12 +16,15 @@ a small Java loader or JPype.
 """
 from __future__ import annotations
 
+import functools
 import json
 import re
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
+from .. import _graphql as gql
 from .._http import HttpClient
+from ..checks import CheckContext, CheckResult, run
 from ..models import DocumentRecord
 from ..registry import register_sink
 from ..utils import log, to_iso
@@ -55,6 +58,7 @@ CHECKIN_TEMPLATE = """<<alias>>: checkinDocument(
 
 VERIFY_TEMPLATE = """query { document(repositoryIdentifier: <<repository>>, identifier: <<id>>) { id contentSize } }"""
 FOLDER_GET_TEMPLATE = """query { folder(repositoryIdentifier: <<repository>>, identifier: <<path>>) { id } }"""
+CLASS_TEMPLATE = """query { classDescription(repositoryIdentifier: <<repository>>, identifier: <<class>>) { symbolicName propertyDescriptions { symbolicName } } }"""
 FOLDER_CREATE_TEMPLATE = """mutation { createFolder(repositoryIdentifier: <<repository>>, folderProperties: { name: <<name>>, parent: { identifier: <<parent>> } }) { id } }"""
 
 
@@ -121,6 +125,7 @@ class FileNetGraphQLSink(Sink):
         self.t_verify = o.get("verify_template", VERIFY_TEMPLATE)
         self.t_folder_get = o.get("folder_get_template", FOLDER_GET_TEMPLATE)
         self.t_folder_create = o.get("folder_create_template", FOLDER_CREATE_TEMPLATE)
+        self.t_class = o.get("class_template", CLASS_TEMPLATE)
         self.client: Optional[HttpClient] = None
         self._folders: set = {"/"}
         self._folder_lock = threading.Lock()
@@ -326,3 +331,88 @@ class FileNetGraphQLSink(Sink):
         if size is not None and record.size and int(size) != int(record.size):
             return False, f"size {size} != expected {record.size}"
         return True, "ok"
+
+    # ------------------------------------------------------------- pre-flight
+    def _sample_operations(self) -> Dict[str, str]:
+        """Every operation this sink sends, rendered with sample values (as ``lodestream check``
+        validates them)."""
+        lit = gql_literal
+        folder_clause = f"fileInFolderIdentifier: {lit('/lodestream-check')}" if self.file_in_folder else ""
+        mutation = lambda body: "mutation($c0: " + self.upload_scalar + ") { " + body + " }"  # noqa: E731
+        return {
+            "create document (createDocument)": mutation(render(
+                self.t_create, alias="d0", repository=self.repository, **{"class": lit("Document")},
+                folder_clause=folder_clause, name=lit("check.pdf"), mime=lit("application/pdf"), var="c0",
+                properties="{DocumentTitle: " + lit("check") + "}")),
+            "check out (checkoutDocument)": "mutation { " + render(
+                self.t_checkout, alias="k0", repository=self.repository, id=lit("{0}")) + " }",
+            "check in (checkinDocument)": mutation(render(
+                self.t_checkin, alias="v0", repository=self.repository, id=lit("{0}"), mime=lit("application/pdf"),
+                var="c0", properties="")),
+            "verify (document)": render(self.t_verify, repository=self.repository, id=lit("{0}")),
+            "find folder (folder)": render(self.t_folder_get, repository=self.repository, path=lit("/")),
+            "create folder (createFolder)": render(self.t_folder_create, repository=self.repository,
+                                                   name=lit("x"), parent=lit("/")),
+        }
+
+    def check(self, cc: CheckContext) -> List[CheckResult]:
+        results = [run("sink", f"connect and authenticate ({self.endpoint})", self.open)]
+        if results[0].status == "fail":
+            return results
+        roots: Dict[str, str] = {}
+
+        def introspect():
+            data = self._post(gql.ROOTS_QUERY).get("data") or {}
+            schema = data.get("__schema") or {}
+            if not schema:
+                return "fail", "the server did not answer the introspection query (is introspection disabled?)"
+            roots["query"] = (schema.get("queryType") or {}).get("name") or "Query"
+            roots["mutation"] = (schema.get("mutationType") or {}).get("name") or "Mutation"
+            return f"query type {roots['query']}, mutation type {roots['mutation']}"
+
+        results.append(run("sink", "read the GraphQL schema", introspect))
+        if not roots:
+            return results
+
+        def fetch_type(name: str):
+            return (self._post(gql.TYPE_QUERY % gql_literal(name)).get("data") or {}).get("__type")
+
+        validator = gql.SchemaValidator(fetch_type)
+        for label, op in self._sample_operations().items():
+            def validate(op=op):
+                root = roots["mutation"] if op.lstrip().startswith("mutation") else roots["query"]
+                errors = validator.validate(root, gql.parse_operation(op))
+                if errors:
+                    return "fail", "; ".join(errors[:4]) + (" ..." if len(errors) > 4 else "") + \
+                        " -- override the template in [sink.options]"
+                return None
+
+            results.append(run("sink", f"GraphQL {label} matches this server", validate))
+
+        def object_store():
+            got = self._post(render(self.t_folder_get, repository=self.repository, path=gql_literal("/")))
+            if not (got.get("data") or {}).get("folder"):
+                return "fail", f"repository {self.options['repository']!r}: root folder not found " \
+                               f"{self._errors_by_alias(got) or ''}"
+            return f"repository {self.options['repository']!r} answers"
+
+        results.append(run("sink", "object store reachable", object_store))
+        for cls, props in sorted(cc.classes.items()):
+            results.append(run("mapping", f"class {cls} and its mapped properties exist",
+                               functools.partial(self._check_class, validator, roots["query"], cls, props)))
+        return results
+
+    def _check_class(self, validator, query_root: str, cls: str, props: List[str]):
+        q = render(self.t_class, repository=self.repository, **{"class": gql_literal(cls)})
+        if validator.validate(query_root, gql.parse_operation(q)):
+            return "skip", "this server's schema has no classDescription query; check classes in ACCE " \
+                           "(or set class_template)"
+        got = self._post(q)
+        desc = (got.get("data") or {}).get("classDescription")
+        if not desc:
+            return "fail", f"class {cls!r} not found: {self._errors_by_alias(got) or 'no result'}"
+        have = {p.get("symbolicName") for p in desc.get("propertyDescriptions") or []}
+        missing = [p for p in props if p not in have and p != self.name_property]
+        if missing:
+            return "warn", f"properties not on {cls}: {', '.join(missing)} (fine if they are mapped only for other classes)"
+        return f"{len(props)} mapped propert{'y' if len(props) == 1 else 'ies'} present"

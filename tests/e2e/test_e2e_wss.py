@@ -1,5 +1,7 @@
 """End-to-end test against a real SQL Server holding a WSS 3.0-shaped content database.
 
+Runs `lodestream check` first (it must be all green), then the migration and a delta.
+
     docker compose -f tests/e2e/docker-compose.yml up -d      # or point at your own server
     LODESTREAM_E2E=1 pytest tests/e2e -v
 
@@ -32,11 +34,16 @@ BIG = bytes(range(256)) * (30 * 1024 * 1024 // 256)          # 30 MB, streamed i
 BIG_V1 = b"first draft of the big file" * 1000
 
 
-def conn_opts(database: str) -> dict:
+def conn_opts(database: str, driver: str = "pytds") -> dict:
     return {"host": E("E2E_HOST", "127.0.0.1"), "port": int(E("E2E_PORT", "14331")), "database": database,
             "user": E("E2E_USER", "sa"), "password": E("E2E_PASSWORD", "Str0ng!Passw0rd"),
             "encrypt": E("E2E_ENCRYPT", "optional"), "trust_server_certificate": True,
-            "driver": "pytds", "login_timeout": 60}
+            "driver": driver, "login_timeout": 60}
+
+
+# E2E_DRIVER=pyodbc runs the migration through pyodbc + Microsoft ODBC Driver 18 (seeding always
+# uses the bundled driver).
+DRIVER = E("E2E_DRIVER", "pytds")
 
 
 def run_script(path: Path) -> None:
@@ -87,7 +94,7 @@ def config(tmp_path, endpoint):
     return {
         "manifest": "state/manifest.db",
         "source": {"type": "wss_sql", "options": {
-            **conn_opts("WSS_Content_E2E"), "chunk_size_mb": 4,
+            **conn_opts("WSS_Content_E2E", DRIVER), "chunk_size_mb": 4,
             "userdata_columns": {"nvarchar1": "Title", "tp_ContentType": "ContentType"},
             "content_type_field": "ContentType"}},
         "sink": {"type": "filenet_graphql", "options": {"endpoint": endpoint, "repository": "OS1",
@@ -107,9 +114,15 @@ def counts(cfg, base):
     return {k: v[0] for k, v in Migration(cfg, base).manifest.counts().items()}
 
 
-def test_wss_to_filenet_bundled_driver(wss_db, tmp_path):
+def test_wss_to_filenet(wss_db, tmp_path):
     with FakeFileNet() as fn:
         cfg = config(tmp_path, fn.endpoint)
+        fn.classes = {c: ["DocumentTitle", "MigrationSourceId", "SourceVersion"] for c in ("Invoice", "Contract", "Document")}
+        pre = Migration(cfg, str(tmp_path)).check(sample=3)
+        assert [r for r in pre if r.status != "ok"] == [], [(r.name, r.detail) for r in pre if r.status != "ok"]
+        if DRIVER == "pyodbc":
+            from lodestream.drivers import choose_driver
+            assert choose_driver(cfg["source"]["options"]) == "pyodbc"
         Migration(cfg, str(tmp_path)).run()
         assert counts(cfg, str(tmp_path)) == {"VERIFIED": 4, "SKIPPED": 1}   # 2 versions + 2 docs; Forms page skipped
 
@@ -145,5 +158,5 @@ def test_wss_to_filenet_bundled_driver(wss_db, tmp_path):
         assert len(delta_uploads) == 1 and "checkinDocument" in delta_uploads[0]["query"]
         assert new in delta_uploads[0]["files"].values()
         m = Migration(cfg, str(tmp_path))
-        latest = m.manifest.get(f"{doc}:1536")
+        latest = m.manifest.get(f"{doc}:1536") or m.manifest.get(f"{str(doc).upper()}:1536")   # pyodbc: GUIDs upper-case
         assert latest.status == Status.VERIFIED and latest.properties["_version_label"] == "3.0"

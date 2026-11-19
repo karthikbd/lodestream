@@ -48,6 +48,79 @@ class _Server:
 
 
 # ----------------------------------------------------------------------------- FileNet
+def _t(kind, name=None, of=None):
+    return {"kind": kind, "name": name, "ofType": of}
+
+
+def _nn(x):
+    return _t("NON_NULL", None, x)
+
+
+def _lst(x):
+    return _t("LIST", None, x)
+
+
+def _s(name="String"):
+    return _t("SCALAR", name)
+
+
+def _io(name):
+    return _t("INPUT_OBJECT", name)
+
+
+def _obj(name):
+    return _t("OBJECT", name)
+
+
+def _f(name, typ, **args):
+    return {"name": name, "type": typ, "args": [{"name": k, "type": v} for k, v in args.items()]}
+
+
+def filenet_schema(class_arg="classIdentifier"):
+    """A cut-down Content Services GraphQL schema covering what the sink uses."""
+    doc_args = {"repositoryIdentifier": _nn(_s()), class_arg: _s(), "fileInFolderIdentifier": _s(),
+                "documentProperties": _io("DocumentPropertiesInput"), "checkinAction": _io("CheckinActionInput")}
+    return {
+        "Mutation": {"kind": "OBJECT", "name": "Mutation", "fields": [
+            _f("createDocument", _obj("Document"), **doc_args),
+            _f("checkoutDocument", _obj("Document"), repositoryIdentifier=_s(), identifier=_s(),
+               checkoutAction=_io("CheckoutActionInput")),
+            _f("checkinDocument", _obj("Document"), repositoryIdentifier=_s(), identifier=_s(),
+               documentProperties=_io("DocumentPropertiesInput"), checkinAction=_io("CheckinActionInput")),
+            _f("createFolder", _obj("Folder"), repositoryIdentifier=_s(), folderProperties=_io("FolderPropertiesInput")),
+        ]},
+        "Query": {"kind": "OBJECT", "name": "Query", "fields": [
+            _f("document", _obj("Document"), repositoryIdentifier=_s(), identifier=_s()),
+            _f("folder", _obj("Folder"), repositoryIdentifier=_s(), identifier=_s()),
+            _f("classDescription", _obj("ClassDescription"), repositoryIdentifier=_s(), identifier=_s()),
+        ]},
+        "Document": {"kind": "OBJECT", "name": "Document", "fields": [
+            _f("id", _s("ID")), _f("contentSize", _s("Float")), _f("reservation", _obj("Document"))]},
+        "Folder": {"kind": "OBJECT", "name": "Folder", "fields": [_f("id", _s("ID"))]},
+        "ClassDescription": {"kind": "OBJECT", "name": "ClassDescription", "fields": [
+            _f("symbolicName", _s()), _f("propertyDescriptions", _lst(_obj("PropertyDescription")))]},
+        "PropertyDescription": {"kind": "OBJECT", "name": "PropertyDescription", "fields": [_f("symbolicName", _s())]},
+        "DocumentPropertiesInput": {"kind": "INPUT_OBJECT", "name": "DocumentPropertiesInput", "inputFields": [
+            {"name": "name", "type": _s()}, {"name": "contentElements", "type": _io("ContentElementListInput")},
+            {"name": "properties", "type": _lst(_s("PropertyIdentifierAndScalarValue"))}]},
+        "ContentElementListInput": {"kind": "INPUT_OBJECT", "name": "ContentElementListInput", "inputFields": [
+            {"name": "replace", "type": _lst(_io("ContentElementInput"))}]},
+        "ContentElementInput": {"kind": "INPUT_OBJECT", "name": "ContentElementInput", "inputFields": [
+            {"name": "type", "type": _t("ENUM", "ContentElementType")}, {"name": "contentType", "type": _s()},
+            {"name": "subContentTransfer", "type": _io("SubContentTransferInput")}]},
+        "SubContentTransferInput": {"kind": "INPUT_OBJECT", "name": "SubContentTransferInput",
+                                    "inputFields": [{"name": "content", "type": _s()}]},
+        "ContentElementType": {"kind": "ENUM", "name": "ContentElementType",
+                               "enumValues": [{"name": "CONTENT_TRANSFER"}, {"name": "CONTENT_REFERENCE"}]},
+        "CheckinActionInput": {"kind": "INPUT_OBJECT", "name": "CheckinActionInput", "inputFields": []},
+        "CheckoutActionInput": {"kind": "INPUT_OBJECT", "name": "CheckoutActionInput", "inputFields": []},
+        "FolderPropertiesInput": {"kind": "INPUT_OBJECT", "name": "FolderPropertiesInput", "inputFields": [
+            {"name": "name", "type": _s()}, {"name": "parent", "type": _io("ObjectReferenceInput")}]},
+        "ObjectReferenceInput": {"kind": "INPUT_OBJECT", "name": "ObjectReferenceInput",
+                                 "inputFields": [{"name": "identifier", "type": _s()}]},
+    }
+
+
 class _FileNetHandler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # silence
         pass
@@ -92,6 +165,17 @@ class _FileNetHandler(BaseHTTPRequestHandler):
         q = json.loads(body)["query"]
         with app.lock:
             app.queries.append(q)
+        if "__schema" in q:
+            return self._send({"data": {"__schema": {"queryType": {"name": "Query"},
+                                                     "mutationType": {"name": "Mutation"}}}})
+        if "__type(" in q:
+            name = re.search(r'__type\(name: "([^"]+)"\)', q).group(1)
+            return self._send({"data": {"__type": app.schema.get(name)}})
+        if "classDescription" in q:
+            cls = re.search(r'identifier: "([^"]+)"', q).group(1)
+            props = app.classes.get(cls)
+            return self._send({"data": {"classDescription": None if props is None else {
+                "symbolicName": cls, "propertyDescriptions": [{"symbolicName": p} for p in props]}}})
         if "__typename" in q:
             return self._send({"data": {"__typename": "Query"}}, cookie="ECM-CS-XSRF-Token=tok123; Path=/")
         if "folder(" in q:
@@ -122,6 +206,8 @@ class FakeFileNet(_Server):
         self.folders = {"/"}
         self.fail_names: List[str] = []
         self.n = 0
+        self.schema = filenet_schema()
+        self.classes: Dict[str, List[str]] = {}
         super().__init__()
 
     @property

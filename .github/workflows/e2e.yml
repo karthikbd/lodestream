@@ -1,9 +1,11 @@
-name: End-to-end (SQL Server)
+name: End-to-end
 
-# Runs the e2e suite against a real SQL Server holding a WSS 3.0-shaped content database, for each
-# SQL Server version, the same setup as tests/e2e/docker-compose.yml: the bundled driver streams
-# BLOBs (including a 30 MB file) and documents are uploaded over HTTP to a FileNet stand-in,
-# then a delta run picks up an edit made after the bulk load.
+# Real systems, in containers:
+#   sqlserver -- a WSS 3.0-shaped content database on SQL Server 2019 / 2022 / 2025, read with the
+#                bundled driver and with pyodbc + Microsoft ODBC Driver 18: pre-flight check, a 30 MB
+#                BLOB streamed in chunks, version history, upload over HTTP to a FileNet stand-in, delta.
+#   s3        -- the s3 source against MinIO (with object versions and a 25 MB object).
+#   cmis      -- the cmis source against Alfresco Community (CMIS 1.1 browser binding, version history).
 on:
   push:
     branches: ["main", "release/**"]
@@ -17,8 +19,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  e2e:
-    name: e2e SQL Server ${{ matrix.version }}
+  sqlserver:
+    name: SQL Server ${{ matrix.version }} (${{ matrix.driver }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -27,8 +29,10 @@ jobs:
       fail-fast: false
       matrix:
         version: ["2019-latest", "2022-latest", "2025-latest"]
+        driver: ["pytds", "pyodbc"]
     env:
       SQL_IMAGE: mcr.microsoft.com/mssql/server:${{ matrix.version }}
+      E2E_DRIVER: ${{ matrix.driver }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,6 +44,17 @@ jobs:
         run: |
           pip install --require-hashes -r ci/requirements-test.txt
           pip install --no-deps -e .
+      - name: Install pyodbc and Microsoft ODBC Driver 18
+        if: matrix.driver == 'pyodbc'
+        run: |
+          if ! odbcinst -q -d 2>/dev/null | grep -q "ODBC Driver 18 for SQL Server"; then
+            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+            curl -fsSL "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/mssql-release.list
+            sudo apt-get update
+            sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+          fi
+          odbcinst -q -d
+          pip install --require-hashes -r ci/requirements-e2e.txt
       - name: Start SQL Server
         run: docker compose -f tests/e2e/docker-compose.yml up -d
       - name: Wait until the server accepts connections
@@ -55,7 +70,72 @@ jobs:
       - name: Run the end-to-end suite
         env:
           LODESTREAM_E2E: "1"
-        run: python -m pytest tests/e2e -v --tb=short -s -o faulthandler_timeout=900
+        run: python -m pytest tests/e2e/test_e2e_wss.py -v --tb=short -s -o faulthandler_timeout=900
       - name: Server logs on failure
         if: failure() || cancelled()
         run: docker compose -f tests/e2e/docker-compose.yml logs --tail 200
+
+  s3:
+    name: S3 source (MinIO)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install --require-hashes -r ci/requirements-test.txt
+          pip install --require-hashes -r ci/requirements-e2e.txt
+          pip install --no-deps -e .
+      - name: Start MinIO (4 drives, so object versioning is available)
+        run: |
+          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data{1...4}
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:9000/minio/health/ready && break; sleep 2; done
+      - name: Run the S3 end-to-end test
+        env:
+          LODESTREAM_E2E_S3: "1"
+        run: python -m pytest tests/e2e/test_e2e_s3.py -v --tb=short
+      - name: Server logs on failure
+        if: failure() || cancelled()
+        run: docker logs minio --tail 200
+
+  cmis:
+    name: CMIS source (Alfresco Community)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install --require-hashes -r ci/requirements-test.txt
+          pip install --no-deps -e .
+      - name: Start Alfresco
+        run: docker compose -f tests/e2e/alfresco-compose.yml up -d
+      - name: Wait until the repository is ready (up to 8 minutes)
+        run: |
+          for i in $(seq 1 96); do
+            if curl -fs -u admin:admin "http://127.0.0.1:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser" >/dev/null; then
+              echo "ready after $((i*5)) s"; exit 0
+            fi
+            sleep 5
+          done
+          echo "Alfresco did not start"; exit 1
+      - name: Run the CMIS end-to-end test
+        env:
+          LODESTREAM_E2E_CMIS: "1"
+        run: python -m pytest tests/e2e/test_e2e_cmis.py -v --tb=short
+      - name: Server logs on failure
+        if: failure() || cancelled()
+        run: docker compose -f tests/e2e/alfresco-compose.yml logs --tail 300 alfresco

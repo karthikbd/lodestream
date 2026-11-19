@@ -11,6 +11,7 @@ from typing import List, Tuple
 from ..models import DocumentRecord
 from ..registry import register_sink
 from ..utils import sha256_file, short_hash
+from ..checks import CheckContext, CheckResult, run
 from .base import LoadItem, LoadResult, Sink
 
 
@@ -80,3 +81,13 @@ class LocalFolderSink(Sink):
         if record.checksum and sha256_file(path) != record.checksum:
             return False, "checksum mismatch"
         return True, "ok"
+
+    def check(self, cc: CheckContext) -> List[CheckResult]:
+        def writable():
+            self.open()
+            probe = os.path.join(self.root, ".lodestream-check")
+            with open(probe, "w", encoding="utf-8") as fh:
+                fh.write("ok")
+            os.remove(probe)
+            return f"{self.root} is writable"
+        return [run("sink", "output folder writable", writable)]

@@ -18,6 +18,7 @@ Column conventions for document queries (use SQL aliases):
 """
 from __future__ import annotations
 
+import functools
 import io
 import threading
 from datetime import datetime
@@ -25,6 +26,7 @@ from typing import Any, Dict, Iterator, List, Optional
 
 from ..models import DocumentRecord
 from ..registry import register_source
+from ..checks import CheckContext, CheckResult, run
 from ..drivers import connect
 from ..utils import jsonable, require_dt, to_iso
 from .base import Source
@@ -240,3 +242,65 @@ class SqlBlobSource(Source):
             raise FileNotFoundError(f"No content for {record.source_id}")
         reader = SqlBlobReader(conn, self._sql(spec["chunk_query"]), params, int(row[0]), self.chunk_size)
         return io.BufferedReader(reader, buffer_size=self.chunk_size)
+
+    # -------------------------------------------------------------- pre-flight
+    def _wrap(self, sql: str, n: int) -> str:
+        if self.dialect == "mssql":
+            return f"SELECT TOP {n} * FROM ({sql}) lodestream_check"
+        if self.dialect == "oracle":
+            return f"SELECT * FROM ({sql}) lodestream_check FETCH FIRST {n} ROWS ONLY"
+        return f"SELECT * FROM ({sql}) lodestream_check LIMIT {n}"
+
+    def check(self, cc: CheckContext) -> List[CheckResult]:
+        """Connects, validates every configured query against the real schema (``WHERE 1 = 0``),
+        reads sample rows per query, and streams one BLOB per content kind."""
+        results = [run("source", f"connect ({self.options.get('driver', 'auto')} driver)", lambda: bool(self._conn()) and None)]
+        if results[0].status == "fail":
+            return results
+        parts: List[str] = []
+
+        def list_partitions():
+            parts.extend(self.partitions())
+            if not parts:
+                return "fail", "partitions_query returned no rows"
+            return f"{len(parts)} partition(s)"
+
+        results.append(run("source", "partitions query", list_partitions))
+        if not parts:
+            return results
+        part_params = [parts[0]] if self.options.get("partitions_query") else []
+        by_kind: Dict[str, DocumentRecord] = {}
+        for i, q in enumerate(self.doc_queries, 1):
+            sql = self._sql(q["sql"])
+
+            def schema(sql=sql):
+                cur = self._conn().cursor()
+                cur.execute(f"SELECT * FROM ({sql}) lodestream_check WHERE 1 = 0", part_params)
+                cols = [d[0].lower() for d in cur.description]
+                missing = [c for c in ("id", "name") if c not in cols]
+                if missing:
+                    return "fail", f"result has no column(s) {missing}; alias them in the query"
+                return f"columns: {', '.join(cols)}"
+
+            results.append(run("source", f"documents query {i}: valid for this schema", schema))
+
+            def sample(sql=sql):
+                for p in parts:
+                    cur = self._conn().cursor()
+                    cur.execute(self._wrap(sql, cc.sample), [p] if part_params else [])
+                    cols = [d[0] for d in cur.description]
+                    rows = cur.fetchall()
+                    if rows:
+                        recs = [self.postprocess(self._row_to_record(dict(zip(cols, r)), p)) for r in rows]
+                        for r in recs:
+                            by_kind.setdefault(r.source_ref.get("ref_kind") or "default", r)
+                        return "; ".join(f"{r.full_path} ({r.size:,} B)" for r in recs[:3])
+                    if not part_params:
+                        break
+                return "warn", "no rows in any partition (fine if this query is for history that does not exist yet)"
+
+            results.append(run("source", f"documents query {i}: sample rows", sample))
+        for kind, rec in by_kind.items():
+            results.append(run("source", f"content query '{kind}': stream one BLOB",
+                               functools.partial(self._check_content, rec)))
+        return results

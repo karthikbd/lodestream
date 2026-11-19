@@ -6,6 +6,7 @@ import mimetypes
 from dataclasses import dataclass, field
 from typing import Any, BinaryIO, Callable, Dict, List, Optional, Tuple
 
+from ..checks import CheckContext, CheckResult, run
 from ..models import DocumentRecord
 from ..utils import HashingReader
 
@@ -61,3 +62,7 @@ class Sink(abc.ABC):
 
     def close(self) -> None:
         pass
+
+    def check(self, cc: CheckContext) -> List[CheckResult]:
+        """Read-only checks for ``lodestream check``. The default connects (``open``)."""
+        return [run("sink", "connect", self.open)]
