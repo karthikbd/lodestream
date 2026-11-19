@@ -22,7 +22,7 @@ used if already installed; they are never required.
 
 ```
 pip install lodestream                                                  # from PyPI
-pip install --no-index --no-deps lodestream-0.2.0-py3-none-any.whl     # air-gapped: the one wheel
+pip install --no-index --no-deps lodestream-0.3.0-py3-none-any.whl     # air-gapped: the one wheel
 ```
 
 Documentation: **https://lodestream.readthedocs.io**
