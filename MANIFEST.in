@@ -1,4 +1,4 @@
-include README.md LICENSE THIRD_PARTY_NOTICES.md SECURITY.md CHANGELOG.md .readthedocs.yaml
+include README.md LICENSE THIRD_PARTY_NOTICES.md SECURITY.md CONTRIBUTING.md CHANGELOG.md .readthedocs.yaml
 recursive-include docs *.md *.py *.css *.svg *.html *.js *.toml
 recursive-include tests *.py *.sql *.yml
 recursive-include ci *.in *.txt *.py
