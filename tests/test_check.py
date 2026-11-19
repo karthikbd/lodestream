@@ -111,3 +111,15 @@ def test_bad_folder_templates_fail_at_startup():
         with pytest.raises(ConfigError, match="folder template"):
             Mapper({"folder": bad})
     Mapper({"folder": "/Migrated/{partition}/{directory}/{{literal}}"})
+
+
+def test_graphql_tokenizer_is_linear():
+    """Found by ClusterFuzzLite: '#' runs made comment skipping backtrack exponentially."""
+    import time
+
+    start = time.monotonic()
+    try:
+        gql.tokenize("a " + "#" * 200_000 + "\n!")
+    except ValueError:
+        pass
+    assert time.monotonic() - start < 1.0

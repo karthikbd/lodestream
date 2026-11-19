@@ -11,8 +11,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
-_TOKEN = re.compile(r'(?:\s|#[^\n]*)*(\$?[A-Za-z_][A-Za-z0-9_]*|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|[{}\[\]():,!=@])')
-_TRAILING = re.compile(r'(?:\s|#[^\n]*)*\Z')
+_TOKEN = re.compile(r'\$?[A-Za-z_][A-Za-z0-9_]*|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|[{}\[\]():,!=@]')
 
 TYPE_REF = "kind name ofType { kind name ofType { kind name ofType { kind name ofType { kind name } } } }"
 TYPE_QUERY = ("query { __type(name: %s) { kind name "
@@ -38,16 +37,30 @@ class Field:
     selection: List["Field"] = field(default_factory=list)
 
 
-def tokenize(text: str) -> List[str]:
-    tokens, pos = [], 0
-    while pos < len(text):
-        if _TRAILING.match(text, pos):     # only whitespace / comments left (comments never inside strings)
+def _skip_ignored(text: str, pos: int) -> int:
+    """Skip whitespace and ``#`` comments (linear; comments never start inside a string)."""
+    n = len(text)
+    while pos < n:
+        c = text[pos]
+        if c.isspace():
+            pos += 1
+        elif c == "#":
+            newline = text.find("\n", pos)
+            pos = n if newline == -1 else newline + 1
+        else:
             break
+    return pos
+
+
+def tokenize(text: str) -> List[str]:
+    tokens: List[str] = []
+    pos = _skip_ignored(text, 0)
+    while pos < len(text):
         m = _TOKEN.match(text, pos)
         if not m:
             raise ValueError(f"cannot parse GraphQL near: {text[pos:pos + 30]!r}")
-        tokens.append(m.group(1))
-        pos = m.end()
+        tokens.append(m.group(0))
+        pos = _skip_ignored(text, m.end())
     return tokens
 
 

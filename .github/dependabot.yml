@@ -17,3 +17,9 @@ updates:
     groups:
       ci-tooling:
         patterns: ["*"]
+
+  # Fuzzing base image (pinned by digest in .clusterfuzzlite/Dockerfile)
+  - package-ecosystem: "docker"
+    directory: "/.clusterfuzzlite"
+    schedule:
+      interval: "weekly"

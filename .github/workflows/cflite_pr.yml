@@ -28,5 +28,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fuzz-seconds: 300
           mode: code-change
+          report-timeouts: true
           sanitizer: address
           output-sarif: true
