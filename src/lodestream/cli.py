@@ -1,5 +1,6 @@
 """Command line interface:  lodestream <command> -c migration.yaml"""
 from __future__ import annotations
+from typing import List, Optional
 
 import argparse
 import json
@@ -21,7 +22,7 @@ def _setup_logging(verbose: bool) -> None:
                         format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
 
 
-def cmd_steps(args) -> int:
+def cmd_steps(args: argparse.Namespace) -> int:
     load_builtins()
     if args.config:
         Migration.from_file(args.config)  # loads plugins declared in the config
@@ -33,7 +34,7 @@ def cmd_steps(args) -> int:
     return 0
 
 
-def cmd_run(args) -> int:
+def cmd_run(args: argparse.Namespace) -> int:
     m = Migration.from_file(args.config)
     steps = [s.strip() for s in args.steps.split(",")] if args.steps else None
     results = m.run(steps=steps, dry_run=args.dry_run)
@@ -47,7 +48,7 @@ def cmd_run(args) -> int:
 _MARK = {"ok": "OK  ", "warn": "WARN", "skip": "SKIP", "fail": "FAIL"}
 
 
-def cmd_check(args) -> int:
+def cmd_check(args: argparse.Namespace) -> int:
     results = Migration.from_file(args.config).check(sample=args.sample)
     if args.json:
         print(json.dumps([r.__dict__ for r in results], indent=2))
@@ -60,7 +61,7 @@ def cmd_check(args) -> int:
     return 1 if any(r.status == "fail" for r in results) else 0
 
 
-def cmd_status(args) -> int:
+def cmd_status(args: argparse.Namespace) -> int:
     st = Migration.from_file(args.config).status()
     if args.json:
         print(json.dumps(st, indent=2, default=str))
@@ -77,18 +78,18 @@ def cmd_status(args) -> int:
     return 0
 
 
-def cmd_estimate(args) -> int:
+def cmd_estimate(args: argparse.Namespace) -> int:
     print(json.dumps(Migration.from_file(args.config).estimate(args.rate, args.gbps), indent=2))
     return 0
 
 
-def cmd_retry(args) -> int:
+def cmd_retry(args: argparse.Namespace) -> int:
     n = Migration.from_file(args.config).manifest.reset_failed(reset_attempts=not args.keep_attempts)
     print(f"Reset {n:,} FAILED item(s); run `lodestream run` (load step) to retry them.")
     return 0
 
 
-def cmd_init(args) -> int:
+def cmd_init(args: argparse.Namespace) -> int:
     src = os.path.join(_EXAMPLES, f"{args.template}.toml")
     if not os.path.exists(src):
         choices = sorted(f[:-5] for f in os.listdir(_EXAMPLES) if f.endswith(".toml"))
@@ -156,11 +157,11 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv=None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     _setup_logging(args.verbose)
     try:
-        return args.func(args)
+        return int(args.func(args))
     except BrokenPipeError:  # e.g. `lodestream status ... | head`
         sys.stderr.close()
         return 0

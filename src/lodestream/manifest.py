@@ -11,7 +11,7 @@ import json
 import sqlite3
 import threading
 from contextlib import contextmanager
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 
 from .models import DocumentRecord, Status
 from .utils import to_iso, utcnow
@@ -81,12 +81,12 @@ def _row_to_record(row: sqlite3.Row) -> DocumentRecord:
     )
 
 
-def _in(values: Sequence) -> str:
+def _in(values: Sequence[Any]) -> str:
     return ",".join("?" for _ in values)
 
 
 class Manifest:
-    def __init__(self, path: str):
+    def __init__(self, path: str) -> None:
         self.path = path
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=60)
@@ -98,7 +98,7 @@ class Manifest:
 
     # ------------------------------------------------------------------ helpers
     @contextmanager
-    def _tx(self):
+    def _tx(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
@@ -108,7 +108,7 @@ class Manifest:
                 self._conn.execute("ROLLBACK")
                 raise
 
-    def _query(self, sql: str, params: Sequence = ()) -> List[sqlite3.Row]:
+    def _query(self, sql: str, params: Sequence[Any] = ()) -> List[sqlite3.Row]:
         with self._lock:
             return self._conn.execute(sql, params).fetchall()
 
@@ -144,7 +144,7 @@ class Manifest:
                 inserted += cur.rowcount
         return inserted
 
-    def update(self, updates: Iterable[Dict]) -> None:
+    def update(self, updates: Iterable[Dict[str, Any]]) -> None:
         """Apply partial updates: each dict needs ``source_id`` plus updatable fields."""
         now = to_iso(utcnow())
         with self._tx() as conn:
@@ -168,7 +168,7 @@ class Manifest:
             b = conn.execute(
                 f"UPDATE documents SET status='PENDING', error=NULL{att} "
                 "WHERE status='FAILED' AND staged_path IS NULL").rowcount
-        return a + b
+        return int(a + b)
 
     # ------------------------------------------------------------------ reads
     def iter_records(self, statuses: Sequence[Status], page: int = 1000,
@@ -212,8 +212,8 @@ class Manifest:
             out[r["series_id"]].append(_row_to_record(r))
         return out
 
-    def top_version_indices(self, series_ids: Sequence[str], n: int) -> Dict[str, set]:
-        out: Dict[str, set] = {}
+    def top_version_indices(self, series_ids: Sequence[str], n: int) -> Dict[str, Set[int]]:
+        out: Dict[str, Set[int]] = {}
         if not series_ids:
             return out
         rows = self._query(
@@ -241,20 +241,20 @@ class Manifest:
         return out
 
     def bytes_in_status(self, status: Status) -> int:
-        return self._query("SELECT COALESCE(SUM(size),0) FROM documents WHERE status=?", (status.value,))[0][0]
+        return int(self._query("SELECT COALESCE(SUM(size),0) FROM documents WHERE status=?", (status.value,))[0][0])
 
     # ------------------------------------------------------------------ runs
     def start_run(self, step: str) -> int:
         with self._tx() as conn:
-            return conn.execute("INSERT INTO runs(step, started) VALUES (?, ?)",
-                                (step, to_iso(utcnow()))).lastrowid
+            return int(conn.execute("INSERT INTO runs(step, started) VALUES (?, ?)",
+                                    (step, to_iso(utcnow()))).lastrowid or 0)
 
-    def finish_run(self, run_id: int, stats: dict) -> None:
+    def finish_run(self, run_id: int, stats: Dict[str, Any]) -> None:
         with self._tx() as conn:
             conn.execute("UPDATE runs SET finished=?, stats=? WHERE run_id=?",
                          (to_iso(utcnow()), json.dumps(stats, default=str), run_id))
 
-    def last_run(self, steps: Sequence[str]) -> Optional[dict]:
+    def last_run(self, steps: Sequence[str]) -> Optional[Dict[str, Any]]:
         rows = self._query(
             f"SELECT * FROM runs WHERE step IN ({_in(steps)}) AND finished IS NOT NULL "
             f"ORDER BY run_id DESC LIMIT 1", list(steps))
@@ -264,7 +264,7 @@ class Manifest:
         return {"run_id": r["run_id"], "step": r["step"], "started": r["started"],
                 "finished": r["finished"], "stats": json.loads(r["stats"] or "{}")}
 
-    def runs(self, limit: int = 20) -> List[dict]:
+    def runs(self, limit: int = 20) -> List[Dict[str, Any]]:
         rows = self._query("SELECT * FROM runs ORDER BY run_id DESC LIMIT ?", (limit,))
         return [{"run_id": r["run_id"], "step": r["step"], "started": r["started"],
                  "finished": r["finished"], "stats": json.loads(r["stats"] or "{}")} for r in rows]

@@ -32,7 +32,7 @@ class Source(abc.ABC):
 
     registered_name = ""
 
-    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = "."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         self.options = options or {}
         self.base_dir = base_dir
 
@@ -59,7 +59,7 @@ class Source(abc.ABC):
         results: List[CheckResult] = []
         parts: List[str] = []
 
-        def list_partitions():
+        def list_partitions() -> str:
             parts.extend(self.partitions())
             return f"{len(parts)} partition(s): {', '.join(map(str, parts[:5]))}{' ...' if len(parts) > 5 else ''}"
 
@@ -68,7 +68,7 @@ class Source(abc.ABC):
             return results
         samples: List[DocumentRecord] = []
 
-        def sample_records():
+        def sample_records() -> Any:
             for part in parts:
                 samples.extend(itertools.islice(self.iter_documents(part), cc.sample - len(samples)))
                 if len(samples) >= cc.sample:
@@ -82,7 +82,7 @@ class Source(abc.ABC):
             results.append(run("source", "stream one document's content", lambda: self._check_content(samples[0])))
         return results
 
-    def _check_content(self, record: DocumentRecord):
+    def _check_content(self, record: DocumentRecord) -> Any:
         stream = self.open_content(record)
         try:
             total = 0

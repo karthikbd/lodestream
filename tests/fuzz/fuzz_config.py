@@ -14,7 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover
     tomllib = None
 
 
-def TestOneInput(data: bytes) -> None:  # noqa: N802 (atheris naming)
+def TestOneInput(data: bytes) -> None:
     fdp = atheris.FuzzedDataProvider(data)
     text = fdp.ConsumeUnicodeNoSurrogates(fdp.remaining_bytes())
     for parse in ([tomllib.loads] if tomllib else []) + [json.loads]:

@@ -98,3 +98,10 @@ def test_mapping_defaults_types_and_catch_all():
     assert folder == "/M/Letter"
     with pytest.raises(Exception, match="unknown key"):
         Mapper({"clases": {}})
+
+
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://host/x", "data:text/plain,hi", "relative/path"])
+def test_http_client_refuses_non_http_urls(url):
+    from lodestream._http import HttpClient
+    with pytest.raises(ValueError, match="only http and https"):
+        HttpClient().request("GET", url)

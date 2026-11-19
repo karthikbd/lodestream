@@ -4,6 +4,10 @@ from __future__ import annotations
 import os
 import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .sinks.base import Sink
+    from .sources.base import Source
 
 from .checks import CheckContext, CheckResult, run as run_check
 from .config import TOP_LEVEL_KEYS, check_keys, load_config, normalize_steps
@@ -18,7 +22,7 @@ from .utils import human_bytes, human_duration, import_object, log
 class Context:
     """What every step receives."""
 
-    def __init__(self, migration: "Migration", step_names: Sequence[str], dry_run: bool):
+    def __init__(self, migration: "Migration", step_names: Sequence[str], dry_run: bool) -> None:
         self.migration = migration
         self.config = migration.config
         self.manifest = migration.manifest
@@ -28,11 +32,11 @@ class Context:
         self.stop_event = migration.stop_event
 
     @property
-    def source(self):
+    def source(self) -> "Source":
         return self.migration.source
 
     @property
-    def sink(self):
+    def sink(self) -> "Sink":
         return self.migration.sink
 
     def open_sink(self) -> None:
@@ -55,7 +59,7 @@ class Migration:
     ``config`` is the parsed configuration; relative paths in it are resolved against ``base_dir``.
     """
 
-    def __init__(self, config: Dict[str, Any], base_dir: str = "."):
+    def __init__(self, config: Dict[str, Any], base_dir: str = ".") -> None:
         load_builtins()
         check_keys(config, TOP_LEVEL_KEYS, "the config file")
         self.config = config
@@ -68,8 +72,8 @@ class Migration:
         self.mapper = Mapper(config.get("mapping"))
         self.steps_config = normalize_steps(config.get("steps"))
         self.stop_event = threading.Event()
-        self._source = None
-        self._sink = None
+        self._source: Optional["Source"] = None
+        self._sink: Optional["Sink"] = None
         self._sink_open = False
         self._sink_lock = threading.Lock()
 
@@ -82,7 +86,7 @@ class Migration:
 
     # ------------------------------------------------------------ plugins
     @staticmethod
-    def _build(table, spec: Dict[str, Any], kind: str, base_dir: str):
+    def _build(table: Dict[str, Any], spec: Optional[Dict[str, Any]], kind: str, base_dir: str) -> Any:
         if not spec or "type" not in spec:
             raise ValueError(f"Config needs a `{kind}` section with a `type`")
         if spec["type"] not in table:
@@ -90,13 +94,13 @@ class Migration:
         return table[spec["type"]](spec.get("options") or {}, base_dir)
 
     @property
-    def source(self):
+    def source(self) -> "Source":
         if self._source is None:
             self._source = self._build(SOURCES, self.config.get("source"), "source", self.base_dir)
         return self._source
 
     @property
-    def sink(self):
+    def sink(self) -> "Sink":
         if self._sink is None:
             self._sink = self._build(SINKS, self.config.get("sink"), "sink", self.base_dir)
         return self._sink
@@ -121,7 +125,7 @@ class Migration:
         return {name: cls.description for name, cls in STAGES.items()}
 
     def plan(self, steps: Optional[Sequence[str]] = None) -> List[Tuple[str, Stage]]:
-        configured = {name: opts for name, opts in self.steps_config}
+        configured = dict(self.steps_config)
         names = list(steps) if steps else [n for n, o in self.steps_config if o.get("enabled", True)]
         unknown = [n for n in names if n not in STAGES]
         if unknown:
@@ -130,7 +134,7 @@ class Migration:
                 for n in names]
 
     # ------------------------------------------------------------ running
-    def _hooks(self, when: str, step: str) -> List:
+    def _hooks(self, when: str, step: str) -> List[Any]:
         names = ((self.config.get("hooks") or {}).get(when) or {}).get(step) or []
         return [import_object(n) for n in names]
 
@@ -204,13 +208,13 @@ class Migration:
         try:
             try:
                 source = self.source
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 results.append(CheckResult("source", "configure source", "fail", f"{type(exc).__name__}: {exc}"))
             else:
                 results.extend(source.check(cc))
             try:
                 sink = self.sink
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 results.append(CheckResult("sink", "configure sink", "fail", f"{type(exc).__name__}: {exc}"))
             else:
                 results.extend(sink.check(cc))

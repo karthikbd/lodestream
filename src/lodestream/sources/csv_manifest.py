@@ -7,7 +7,7 @@ import csv
 import glob
 import os
 from datetime import datetime
-from typing import Iterator, List, Optional
+from typing import Any, BinaryIO, Dict, Iterator, List, Optional
 
 from ..models import DocumentRecord
 from ..registry import register_source
@@ -45,7 +45,7 @@ class CsvManifestSource(Source):
     Every other column becomes a metadata property.
     """
 
-    def __init__(self, options=None, base_dir="."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         super().__init__(options, base_dir)
         self.pattern = os.path.join(base_dir, self.options["path"])
         self.content_root = os.path.join(base_dir, self.options.get("content_root", "."))
@@ -89,5 +89,5 @@ class CsvManifestSource(Source):
                     partition=os.path.basename(partition),
                 )
 
-    def open_content(self, record: DocumentRecord):
+    def open_content(self, record: DocumentRecord) -> BinaryIO:
         return open(record.source_ref["path"], "rb")

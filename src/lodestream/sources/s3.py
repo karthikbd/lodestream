@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import mimetypes
 from datetime import datetime
-from typing import Iterator, List, Optional
+from typing import Any, BinaryIO, Dict, Iterator, List, Optional
 
 from ..models import DocumentRecord
 from ..registry import register_source
@@ -30,7 +30,7 @@ class S3Source(Source):
     Object user-metadata (x-amz-meta-*) is not fetched at inventory time (one extra call per object).
     """
 
-    def __init__(self, options=None, base_dir="."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         super().__init__(options, base_dir)
         import boto3  # optional dependency: pip install lodestream[s3]
 
@@ -49,7 +49,7 @@ class S3Source(Source):
             parts += [p["Prefix"] for p in page.get("CommonPrefixes", [])]
         return parts
 
-    def _record(self, key: str, size: int, modified, etag: str, version_id=None) -> DocumentRecord:
+    def _record(self, key: str, size: int, modified: Any, etag: str, version_id: Optional[str] = None) -> DocumentRecord:
         rel = key[len(self.prefix):] if key.startswith(self.prefix) else key
         directory, _, name = rel.rpartition("/")
         mod = parse_dt(modified)
@@ -83,8 +83,9 @@ class S3Source(Source):
                 continue
             yield self._record(obj["Key"], obj["Size"], obj["LastModified"], obj.get("ETag", ""), vid)
 
-    def open_content(self, record: DocumentRecord):
+    def open_content(self, record: DocumentRecord) -> BinaryIO:
         kwargs = {"Bucket": self.bucket, "Key": record.source_ref["key"]}
         if record.source_ref.get("version_id"):
             kwargs["VersionId"] = record.source_ref["version_id"]
-        return self.client.get_object(**kwargs)["Body"]
+        body: BinaryIO = self.client.get_object(**kwargs)["Body"]
+        return body

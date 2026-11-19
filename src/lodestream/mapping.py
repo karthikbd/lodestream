@@ -10,8 +10,8 @@ from .models import DocumentRecord
 from .utils import require_dt
 
 
-class _SafeDict(dict):
-    def __missing__(self, key):
+class _SafeDict(Dict[str, Any]):
+    def __missing__(self, key: str) -> str:
         return ""
 
 
@@ -80,7 +80,7 @@ class Mapper:
     See the Mapping page of the user guide for every field.
     """
 
-    def __init__(self, cfg: Optional[Dict[str, Any]] = None):
+    def __init__(self, cfg: Optional[Dict[str, Any]] = None) -> None:
         cfg = cfg or {}
         check_keys(cfg, MAPPING_KEYS, "[mapping]")
         self.default_class = cfg.get("default_class", "Document")

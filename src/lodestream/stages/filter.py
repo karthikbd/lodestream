@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import fnmatch
 from collections import Counter
-from typing import Optional
+from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..pipeline import Context
 
 from ..models import Status
 from ..registry import register_stage
@@ -30,7 +33,7 @@ class FilterStage(Stage):
 
     description = "Skip versions/files you do not want to move (old versions, junk, system files, by date/size/type)."
 
-    def run(self, ctx, limit: Optional[int] = None):
+    def run(self, ctx: "Context", limit: Optional[int] = None) -> Dict[str, Any]:
         o = self.options
         policy = o.get("versions", "all")
         keep_n = {"all": None, "latest": 1}.get(policy, int(o.get("keep_versions", 1)))
@@ -41,7 +44,7 @@ class FilterStage(Stage):
         after = parse_dt(o["modified_after"]) if o.get("modified_after") else None
         inc_types = set(o.get("include_content_types", []))
         exc_types = set(o.get("exclude_content_types", []))
-        reasons: Counter = Counter()
+        reasons: Counter[str] = Counter()
         examined = 0
         for page in ctx.manifest.iter_records([Status.PENDING], page=2000):
             tops = ctx.manifest.top_version_indices(list({r.series_id for r in page}), keep_n) if keep_n else {}

@@ -44,7 +44,7 @@ class LoadResult:
 class Sink(abc.ABC):
     registered_name = ""
 
-    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = "."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         self.options = options or {}
         self.base_dir = base_dir
 

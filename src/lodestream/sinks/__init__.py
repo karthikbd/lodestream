@@ -1,3 +1,3 @@
 from .base import LoadItem, LoadResult, Sink
 
-__all__ = ["Sink", "LoadItem", "LoadResult"]
+__all__ = ["LoadItem", "LoadResult", "Sink"]

@@ -8,6 +8,7 @@ so run `lodestream inventory` on a small list first and override any query in
 the config if needed.
 """
 from __future__ import annotations
+from typing import Any, Dict, Optional
 
 import re
 
@@ -64,7 +65,7 @@ class WssSqlSource(SqlBlobSource):
     content_type_field is set; _version_label is the SharePoint version (e.g. "3.0").
     """
 
-    def __init__(self, options=None, base_dir="."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         options = dict(options or {})
         ud_cols = options.get("userdata_columns") or {}
         for col, alias in ud_cols.items():

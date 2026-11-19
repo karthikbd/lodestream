@@ -61,7 +61,8 @@ def load_config(path: str) -> Dict[str, Any]:
         except ModuleNotFoundError:  # pragma: no cover - Python 3.10
             raise ConfigError("TOML configs need Python 3.11+; use a .json config instead") from None
         data = tomllib.loads(text)
-    return _expand(data)
+    expanded: Dict[str, Any] = _expand(data)
+    return expanded
 
 
 def normalize_steps(steps: Any) -> List[Tuple[str, Dict[str, Any]]]:

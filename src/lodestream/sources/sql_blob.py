@@ -22,13 +22,13 @@ import functools
 import io
 import threading
 from datetime import datetime
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, BinaryIO, ClassVar, Dict, Iterator, List, Optional
 
 from ..models import DocumentRecord
 from ..registry import register_source
 from ..checks import CheckContext, CheckResult, run
 from ..drivers import connect
-from ..utils import jsonable, require_dt, to_iso
+from ..utils import jsonable, log, require_dt, to_iso
 from .base import Source
 
 DIALECTS = {
@@ -43,7 +43,7 @@ _STANDARD = {"id", "version", "name", "directory", "size", "modified", "content_
 class SqlBlobReader(io.RawIOBase):
     """Streams a BLOB in fixed-size windows: SELECT SUBSTRING(col, start, len) ..."""
 
-    def __init__(self, conn, chunk_sql: str, params: List[Any], length: int, chunk_size: int):
+    def __init__(self, conn: Any, chunk_sql: str, params: List[Any], length: int, chunk_size: int) -> None:
         self._conn, self._sql, self._params = conn, chunk_sql, params
         self._length, self._chunk = length, chunk_size
         self._pos, self._buf, self._off = 0, b"", 0
@@ -51,7 +51,7 @@ class SqlBlobReader(io.RawIOBase):
     def readable(self) -> bool:
         return True
 
-    def readinto(self, b) -> int:
+    def readinto(self, b: Any) -> int:
         if self._off >= len(self._buf):
             if self._pos >= self._length:
                 return 0
@@ -109,9 +109,9 @@ class SqlBlobSource(Source):
     column becomes a metadata property.
     """
 
-    default_options: Dict[str, Any] = {}
+    default_options: ClassVar[Dict[str, Any]] = {}
 
-    def __init__(self, options=None, base_dir="."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         merged = {**self.default_options, **(options or {})}
         super().__init__(merged, base_dir)
         o = self.options
@@ -132,10 +132,10 @@ class SqlBlobSource(Source):
         self.content = o.get("content") or {}
 
     # -------------------------------------------------------------- connections
-    def _connect(self):
+    def _connect(self) -> Any:
         return connect(self.options, self.base_dir)
 
-    def _conn(self):
+    def _conn(self) -> Any:
         conn = getattr(self._local, "conn", None)
         if conn is None:
             conn = self._connect()
@@ -150,7 +150,7 @@ class SqlBlobSource(Source):
                 try:
                     c.close()
                 except Exception:  # pragma: no cover
-                    pass
+                    log.debug("close failed", exc_info=True)
             self._all_conns.clear()
         self._local = threading.local()
 
@@ -161,7 +161,7 @@ class SqlBlobSource(Source):
             sql = sql.replace("?", "%s")
         return sql
 
-    def _since_param(self, since: datetime):
+    def _since_param(self, since: datetime) -> Any:
         return since.strftime("%Y-%m-%dT%H:%M:%S") if self.dialect == "sqlite" else since
 
     # -------------------------------------------------------------- inventory
@@ -221,7 +221,7 @@ class SqlBlobSource(Source):
                     yield rec
 
     # -------------------------------------------------------------- content
-    def open_content(self, record: DocumentRecord):
+    def open_content(self, record: DocumentRecord) -> BinaryIO:
         ref = record.source_ref
         spec = self.content.get(ref.get("ref_kind") or "default") or self.content.get("default")
         if not spec:
@@ -259,7 +259,7 @@ class SqlBlobSource(Source):
             return results
         parts: List[str] = []
 
-        def list_partitions():
+        def list_partitions() -> Any:
             parts.extend(self.partitions())
             if not parts:
                 return "fail", "partitions_query returned no rows"
@@ -273,7 +273,7 @@ class SqlBlobSource(Source):
         for i, q in enumerate(self.doc_queries, 1):
             sql = self._sql(q["sql"])
 
-            def schema(sql=sql):
+            def schema(sql: str = sql) -> Any:
                 cur = self._conn().cursor()
                 cur.execute(f"SELECT * FROM ({sql}) lodestream_check WHERE 1 = 0", part_params)
                 cols = [d[0].lower() for d in cur.description]
@@ -284,7 +284,7 @@ class SqlBlobSource(Source):
 
             results.append(run("source", f"documents query {i}: valid for this schema", schema))
 
-            def sample(sql=sql):
+            def sample(sql: str = sql) -> Any:
                 for p in parts:
                     cur = self._conn().cursor()
                     cur.execute(self._wrap(sql, cc.sample), [p] if part_params else [])

@@ -4,9 +4,12 @@ from __future__ import annotations
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..pipeline import Context
 
-from ..models import Status
+from ..models import DocumentRecord, Status
 from ..registry import register_stage
 from ..utils import Progress, to_iso, utcnow
 from .base import Stage
@@ -27,16 +30,16 @@ class VerifyStage(Stage):
     description = "Check loaded items exist in the target with the right size/checksum; write a reconciliation report."
     chunkable = True
 
-    def run(self, ctx, limit: Optional[int] = None):
+    def run(self, ctx: "Context", limit: Optional[int] = None) -> Dict[str, Any]:
         workers = int(self.options.get("workers", 8))
         cleanup = self.options.get("cleanup_staging", True)
         ctx.open_sink()
         prog = Progress("verify")
 
-        def check(rec):
+        def check(rec: DocumentRecord) -> Any:
             try:
                 ok, msg = ctx.sink.verify(rec)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 ok, msg = False, f"{type(exc).__name__}: {exc}"
             if ok:
                 if cleanup and rec.staged_path and os.path.exists(rec.staged_path):

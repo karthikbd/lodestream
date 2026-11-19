@@ -8,7 +8,7 @@ import re
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Dict, Optional, cast
 
 log = logging.getLogger("lodestream")
 
@@ -27,7 +27,7 @@ def parse_dt(value: Any) -> Optional[datetime]:
     if isinstance(value, datetime):
         if value.tzinfo:
             value = value.astimezone(timezone.utc).replace(tzinfo=None)
-        return value
+        return cast(datetime, value)
     s = str(value).strip()
     if s.endswith("Z"):
         s = s[:-1] + "+00:00"
@@ -86,7 +86,7 @@ def jsonable(value: Any) -> Any:
 class HashingReader:
     """Wraps a binary stream, computing SHA-256 and byte count as it is read."""
 
-    def __init__(self, raw):
+    def __init__(self, raw: Any) -> None:
         self._raw = raw
         self._hash = hashlib.sha256()
         self.bytes_read = 0
@@ -100,7 +100,7 @@ class HashingReader:
             self.bytes_read += len(data)
         if not data or n is None or n < 0:
             self.eof = True
-        return data
+        return bytes(data)
 
     def readable(self) -> bool:
         return True
@@ -113,12 +113,12 @@ class HashingReader:
         try:
             self._raw.close()
         except Exception:  # pragma: no cover
-            pass
+            log.debug("close failed", exc_info=True)
 
-    def __enter__(self):
+    def __enter__(self) -> "HashingReader":
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: Any) -> None:
         self.close()
 
 
@@ -174,7 +174,7 @@ def import_object(path: str) -> Any:
 class Progress:
     """Thread-safe counters with periodic log lines."""
 
-    def __init__(self, label: str, log_every: float = 15.0):
+    def __init__(self, label: str, log_every: float = 15.0) -> None:
         self.label = label
         self.docs = 0
         self.failed = 0
@@ -199,7 +199,7 @@ class Progress:
                     s["docs_per_sec"], s["mb_per_sec"],
                 )
 
-    def _summary_unlocked(self) -> dict:
+    def _summary_unlocked(self) -> Dict[str, Any]:
         elapsed = max(time.monotonic() - self._start, 1e-9)
         return {
             "docs": self.docs,
@@ -210,6 +210,6 @@ class Progress:
             "mb_per_sec": round(self.bytes / elapsed / 1e6, 2),
         }
 
-    def summary(self) -> dict:
+    def summary(self) -> Dict[str, Any]:
         with self._lock:
             return self._summary_unlocked()

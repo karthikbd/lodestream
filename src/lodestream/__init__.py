@@ -14,6 +14,16 @@ from .stages.base import Stage
 __version__ = "0.3.0"
 
 __all__ = [
-    "Migration", "DocumentRecord", "Status", "Source", "Sink", "Stage", "LoadItem", "LoadResult",
-    "register_source", "register_sink", "register_stage", "__version__",
+    "DocumentRecord",
+    "LoadItem",
+    "LoadResult",
+    "Migration",
+    "Sink",
+    "Source",
+    "Stage",
+    "Status",
+    "__version__",
+    "register_sink",
+    "register_source",
+    "register_stage",
 ]

@@ -327,3 +327,23 @@ def test_generic_sql_blob_source_and_cli_run(tmp_path, capsys):
     capsys.readouterr()
     assert cli_main(["status", "-c", path]) == 0
     assert "VERIFIED" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("directory, name", [
+    ("../../escape", "x.pdf"), ("a/../..", "x.pdf"), ("", "../x.pdf"), ("ok", "..\\x.pdf"), ("C:", "x.pdf")])
+def test_local_folder_refuses_names_that_escape_the_root(tmp_path, directory, name):
+    """Folder and file names come from the source system; they must not write outside the root."""
+    import io
+    from lodestream.models import DocumentRecord
+    from lodestream.sinks.base import LoadItem
+    sink = LocalFolderSink({"root": "out"}, str(tmp_path))
+    rec = DocumentRecord(source_id="1", series_id="s1", name=name, directory=directory)
+    item = LoadItem(rec, "Document", {}, None, None, lambda: io.BytesIO(b"data"))
+    [res] = sink.load_batch([item])
+    harmless_on_posix = name == "..\\x.pdf" or directory == "C:"   # backslash and colon are ordinary characters there
+    if os.sep == "/" and harmless_on_posix:
+        assert res.error is None
+    else:
+        assert res.error is not None and ("unsafe path" in res.error or "outside" in res.error)
+    escaped = [p for p in tmp_path.rglob("*") if p.is_file() and not str(p).startswith(str(tmp_path / "out"))]
+    assert not escaped, escaped

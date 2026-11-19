@@ -3,11 +3,14 @@ delta:     the same, but only for items changed since the last inventory/delta r
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import timedelta
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..pipeline import Context
 
 from ..registry import register_stage
-from ..utils import Progress, log, parse_dt
+from ..utils import Progress, log, parse_dt, require_dt
 from .base import Stage
 
 
@@ -23,10 +26,10 @@ class InventoryStage(Stage):
         since = "2026-01-01T00:00:00"       # optional: only items modified after this time
     """
 
-    def _since(self, ctx):
+    def _since(self, ctx: "Context") -> Optional[datetime]:
         return parse_dt(self.options.get("since")) if self.options.get("since") else None
 
-    def run(self, ctx, limit: Optional[int] = None):
+    def run(self, ctx: "Context", limit: Optional[int] = None) -> Dict[str, Any]:
         since = self._since(ctx)
         source = ctx.source
         parts = source.partitions()
@@ -36,7 +39,7 @@ class InventoryStage(Stage):
         log.info("[%s] %d partition(s), %d worker(s)%s", self.registered_name, len(parts), workers,
                  f", changes since {since}" if since else "")
 
-        def scan(part):
+        def scan(part: str) -> Any:
             buf, new, seen = [], 0, 0
             for rec in source.iter_documents(part, since):
                 if ctx.stop_event.is_set():
@@ -62,7 +65,7 @@ class InventoryStage(Stage):
                     n, s = f.result()
                     new_total += n
                     seen_total += s
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     errors += 1
                     log.error("[%s] partition %r failed: %s", self.registered_name, futures[f], exc)
         s = prog.summary()
@@ -83,11 +86,11 @@ class DeltaStage(InventoryStage):
         since = "2026-06-01T00:00:00"       # optional: explicit start instead of the last run
     """
 
-    def _since(self, ctx):
+    def _since(self, ctx: "Context") -> Optional[datetime]:
         if self.options.get("since"):
             return parse_dt(self.options["since"])
         last = ctx.manifest.last_run(["inventory", "delta"])
         if not last:
             raise RuntimeError("delta needs a previous inventory run (or an explicit `since`)")
         overlap = float(self.options.get("overlap_minutes", 10))
-        return parse_dt(last["started"]) - timedelta(minutes=overlap)
+        return require_dt(last["started"]) - timedelta(minutes=overlap)

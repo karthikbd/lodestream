@@ -4,7 +4,7 @@ from __future__ import annotations
 import mimetypes
 import os
 from datetime import datetime, timezone
-from typing import Iterator, List, Optional
+from typing import Any, BinaryIO, Dict, Iterator, List, Optional
 
 from ..models import DocumentRecord
 from ..registry import register_source
@@ -26,7 +26,7 @@ class FilesystemSource(Source):
     becomes a new version of the same document.
     """
 
-    def __init__(self, options=None, base_dir="."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         super().__init__(options, base_dir)
         self.root = os.path.abspath(os.path.join(base_dir, self.options["root"]))
         self.exclude_hidden = self.options.get("exclude_hidden", True)
@@ -39,7 +39,7 @@ class FilesystemSource(Source):
                 parts.append(e.name)
         return parts
 
-    def _files(self, partition: str):
+    def _files(self, partition: str) -> Iterator[str]:
         if partition == ROOT_PARTITION:
             for e in os.scandir(self.root):
                 if e.is_file(follow_symlinks=self.follow):
@@ -75,5 +75,5 @@ class FilesystemSource(Source):
                 partition=partition,
             )
 
-    def open_content(self, record: DocumentRecord):
+    def open_content(self, record: DocumentRecord) -> BinaryIO:
         return open(record.source_ref["path"], "rb")

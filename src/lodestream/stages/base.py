@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..pipeline import Context
 
 
 class Stage:
@@ -10,8 +13,8 @@ class Stage:
     writes_target = False   # skipped in --dry-run
     chunkable = False       # takes part in `rolling` chunk loops
 
-    def __init__(self, options: Optional[Dict[str, Any]] = None):
+    def __init__(self, options: Optional[Dict[str, Any]] = None) -> None:
         self.options = options or {}
 
-    def run(self, ctx, limit: Optional[int] = None) -> Dict[str, Any]:  # pragma: no cover
+    def run(self, ctx: "Context", limit: Optional[int] = None) -> Dict[str, Any]:  # pragma: no cover
         raise NotImplementedError

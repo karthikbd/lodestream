@@ -59,7 +59,7 @@ def choose_driver(o: Dict[str, Any]) -> str:
     if driver not in DRIVERS:
         raise DriverError(f"driver must be one of {', '.join(DRIVERS)}")
     if driver != "auto":
-        return driver
+        return str(driver)
     if o.get("connection_string") or _pyodbc_usable(o.get("odbc_driver", "ODBC Driver 18 for SQL Server")):
         return "pyodbc"
     return "pytds"
@@ -68,10 +68,10 @@ def choose_driver(o: Dict[str, Any]) -> str:
 class _QmarkCursor:
     """Cursor wrapper translating ``?`` placeholders to the bundled driver's ``%s``."""
 
-    def __init__(self, raw: Any):
+    def __init__(self, raw: Any) -> None:
         self._raw = raw
 
-    def execute(self, sql: str, params: Optional[Sequence[Any]] = None):
+    def execute(self, sql: str, params: Optional[Sequence[Any]] = None) -> Any:
         if params:
             from ._vendor.pytds.tds_types import Binary
 
@@ -88,7 +88,7 @@ class _QmarkCursor:
 
 
 class _QmarkConnection:
-    def __init__(self, raw: Any):
+    def __init__(self, raw: Any) -> None:
         self._raw = raw
 
     def cursor(self) -> _QmarkCursor:
@@ -109,7 +109,7 @@ def _connect_pytds(o: Dict[str, Any]) -> Any:
     if not host:
         raise DriverError("SQL Server source needs `host` (or a pyodbc `connection_string`)")
     instance = o.get("instance")
-    kwargs = dict(
+    kwargs = dict(  # noqa: C408 (keyword form reads like the driver's signature)
         dsn=f"{host}\\{instance}" if instance else host,
         port=None if instance else int(o.get("port", 1433)),
         database=o.get("database"), user=o.get("user"), password=resolve_password(o),

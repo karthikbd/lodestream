@@ -12,7 +12,7 @@ with atheris.instrument_imports():
 TYPES = ["", "string", "int", "float", "bool", "datetime", "date"]
 
 
-def TestOneInput(data: bytes) -> None:  # noqa: N802
+def TestOneInput(data: bytes) -> None:
     fdp = atheris.FuzzedDataProvider(data)
     template = fdp.ConsumeUnicodeNoSurrogates(40)
     value = fdp.ConsumeUnicodeNoSurrogates(40)

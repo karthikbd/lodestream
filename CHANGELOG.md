@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **Security:** the `local_folder` sink built output paths from document folder and file names taken from
+  the source, so a name such as `../../x` could write outside the configured `root`. Path components
+  `..`, separators and drive names are now refused (the item fails with a clear error) and every path is
+  checked to stay under `root`. The FileNet sink and staging (which uses sanitized names) were not
+  affected. Found while writing the threat model.
+- **Security:** the HTTP client accepts only `http` and `https` URLs (urllib would also open `file:` and
+  `ftp:`).
+- `GOVERNANCE.md`, `CODE_OF_CONDUCT.md`, `ROADMAP.md`; a security assurance case and a dependency and
+  scanning policy in the developer documentation; support, end-of-life, response and secrets policies in
+  `SECURITY.md`; an OpenVEX document (`vex.openvex.json`).
+- Reproducible builds (byte-identical wheel and sdist from the same commit, checked in CI); `mypy --strict`;
+  `ruff` security rules; statement-coverage floor of 80%; DCO and dependency-review checks on pull requests.
+
 ## 0.3.0 (2026-11-18)
 
 - New `lodestream check`: read-only pre-flight. Validates every SQL query against the real schema,

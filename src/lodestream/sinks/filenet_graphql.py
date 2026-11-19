@@ -20,7 +20,7 @@ import functools
 import json
 import re
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .. import _graphql as gql
 from .._http import HttpClient
@@ -108,7 +108,7 @@ class FileNetGraphQLSink(Sink):
         # folder_get_template / folder_create_template override each GraphQL query
     """
 
-    def __init__(self, options=None, base_dir="."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         super().__init__(options, base_dir)
         o = self.options
         self.endpoint = o["endpoint"]
@@ -127,7 +127,7 @@ class FileNetGraphQLSink(Sink):
         self.t_folder_create = o.get("folder_create_template", FOLDER_CREATE_TEMPLATE)
         self.t_class = o.get("class_template", CLASS_TEMPLATE)
         self.client: Optional[HttpClient] = None
-        self._folders: set = {"/"}
+        self._folders: Set[str] = {"/"}
         self._folder_lock = threading.Lock()
 
     # ------------------------------------------------------------- transport
@@ -150,14 +150,15 @@ class FileNetGraphQLSink(Sink):
         return {"ECM-CS-XSRF-Token": token} if token else {}
 
     @staticmethod
-    def _parse(resp) -> Dict[str, Any]:
+    def _parse(resp: Any) -> Dict[str, Any]:
         try:
             payload = resp.json()
         except ValueError:
             raise RuntimeError(f"HTTP {resp.status}: {resp.text[:300]}") from None
         if resp.status >= 400 and not payload.get("errors"):
             raise RuntimeError(f"HTTP {resp.status}: {str(payload)[:300]}")
-        return payload
+        out: Dict[str, Any] = payload
+        return out
 
     def _post(self, query: str) -> Dict[str, Any]:
         """JSON POST without uploads; the client retries transient failures (502/503/504, network)."""
@@ -237,8 +238,8 @@ class FileNetGraphQLSink(Sink):
             for n, item in enumerate(items):
                 files[f"f{n}"] = (item.record.name, item.open(), item.mime)
                 mapping[f"f{n}"] = [f"variables.{var_names[n]}"]
-            payload = self._post_multipart(query, {v: None for v in var_names}, mapping, files)
-        except Exception as exc:  # noqa: BLE001
+            payload = self._post_multipart(query, dict.fromkeys(var_names), mapping, files)
+        except Exception as exc:
             for item in items:
                 results[item.record.source_id] = LoadResult(item.record.source_id,
                                                             error=f"{type(exc).__name__}: {exc}")
@@ -263,7 +264,7 @@ class FileNetGraphQLSink(Sink):
                 if self.file_in_folder and item.folder:
                     self._ensure_folder(item.folder)
                 ready.append(item)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 results[item.record.source_id] = LoadResult(item.record.source_id, error=f"folder: {exc}")
         if not ready:
             return
@@ -286,7 +287,7 @@ class FileNetGraphQLSink(Sink):
                                    id=gql_literal(i.previous_target_id)) for n, i in enumerate(items))
         try:
             payload = self._post("mutation { " + checkout + " }")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             for i in items:
                 results[i.record.source_id] = LoadResult(i.record.source_id, error=f"checkout: {exc}")
             return
@@ -338,7 +339,8 @@ class FileNetGraphQLSink(Sink):
         validates them)."""
         lit = gql_literal
         folder_clause = f"fileInFolderIdentifier: {lit('/lodestream-check')}" if self.file_in_folder else ""
-        mutation = lambda body: "mutation($c0: " + self.upload_scalar + ") { " + body + " }"  # noqa: E731
+        def mutation(body: str) -> str:
+            return "mutation($c0: " + str(self.upload_scalar) + ") { " + body + " }"
         return {
             "create document (createDocument)": mutation(render(
                 self.t_create, alias="d0", repository=self.repository, **{"class": lit("Document")},
@@ -361,7 +363,7 @@ class FileNetGraphQLSink(Sink):
             return results
         roots: Dict[str, str] = {}
 
-        def introspect():
+        def introspect() -> Any:
             data = self._post(gql.ROOTS_QUERY).get("data") or {}
             schema = data.get("__schema") or {}
             if not schema:
@@ -374,12 +376,12 @@ class FileNetGraphQLSink(Sink):
         if not roots:
             return results
 
-        def fetch_type(name: str):
+        def fetch_type(name: str) -> Any:
             return (self._post(gql.TYPE_QUERY % gql_literal(name)).get("data") or {}).get("__type")
 
         validator = gql.SchemaValidator(fetch_type)
         for label, op in self._sample_operations().items():
-            def validate(op=op):
+            def validate(op: str = op) -> Any:
                 root = roots["mutation"] if op.lstrip().startswith("mutation") else roots["query"]
                 errors = validator.validate(root, gql.parse_operation(op))
                 if errors:
@@ -389,7 +391,7 @@ class FileNetGraphQLSink(Sink):
 
             results.append(run("sink", f"GraphQL {label} matches this server", validate))
 
-        def object_store():
+        def object_store() -> Any:
             got = self._post(render(self.t_folder_get, repository=self.repository, path=gql_literal("/")))
             if not (got.get("data") or {}).get("folder"):
                 return "fail", f"repository {self.options['repository']!r}: root folder not found " \
@@ -402,7 +404,7 @@ class FileNetGraphQLSink(Sink):
                                functools.partial(self._check_class, validator, roots["query"], cls, props)))
         return results
 
-    def _check_class(self, validator, query_root: str, cls: str, props: List[str]):
+    def _check_class(self, validator: gql.SchemaValidator, query_root: str, cls: str, props: List[str]) -> Any:
         q = render(self.t_class, repository=self.repository, **{"class": gql_literal(cls)})
         if validator.validate(query_root, gql.parse_operation(q)):
             return "skip", "this server's schema has no classDescription query; check classes in ACCE " \

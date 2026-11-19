@@ -26,14 +26,23 @@ _CHUNK = 1024 * 1024
 
 
 class HttpError(RuntimeError):
-    def __init__(self, status: int, body: str):
+    def __init__(self, status: int, body: str) -> None:
         super().__init__(f"HTTP {status}: {body[:300]}")
         self.status = status
         self.body = body
 
 
+
+def _request(url: str, **kwargs: Any) -> urllib.request.Request:
+    """A request for an http(s) URL only: urllib would also open file:, ftp: and data: URLs, which a
+    mistyped or hostile endpoint in a config could use to read local files."""
+    scheme = urllib.parse.urlsplit(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"only http and https URLs are allowed, not {scheme or 'a relative'} URL: {url[:80]!r}")
+    return urllib.request.Request(url, **kwargs)  # noqa: S310 (scheme checked above)
+
 class Response:
-    def __init__(self, status: int, body: bytes, headers: Dict[str, str]):
+    def __init__(self, status: int, body: bytes, headers: Dict[str, str]) -> None:
         self.status = status
         self.body = body
         self.headers = headers
@@ -62,7 +71,7 @@ class HttpClient:
     idempotent calls, streaming multipart uploads."""
 
     def __init__(self, auth: Optional[Dict[str, Any]] = None, verify: Union[bool, str] = True,
-                 timeout: float = 600, headers: Optional[Dict[str, str]] = None, max_retries: int = 3):
+                 timeout: float = 600, headers: Optional[Dict[str, str]] = None, max_retries: int = 3) -> None:
         self.timeout = timeout
         self.max_retries = max_retries
         self.headers: Dict[str, str] = dict(headers or {})
@@ -104,7 +113,7 @@ class HttpClient:
         attempt = 0
         while True:
             try:
-                resp = self._open(urllib.request.Request(url, data=data, headers=hdrs, method=method))
+                resp = self._open(_request(url, data=data, headers=hdrs, method=method))
                 if resp.status in TRANSIENT_STATUS and retry and attempt < self.max_retries:
                     raise HttpError(resp.status, resp.text)
                 return resp
@@ -124,9 +133,10 @@ class HttpClient:
         """GET a (large) response body as a readable stream. Caller closes it."""
         if params:
             url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
-        req = urllib.request.Request(url, headers=self.headers, method="GET")
+        req = _request(url, headers=self.headers, method="GET")
         try:
-            return self._opener.open(req, timeout=self.timeout)
+            resp: BinaryIO = self._opener.open(req, timeout=self.timeout)
+            return resp
         except urllib.error.HTTPError as exc:
             raise HttpError(exc.code, (exc.read() or b"").decode("utf-8", "replace")) from None
 
@@ -157,5 +167,5 @@ class HttpClient:
         hdrs = {**self.headers, **(headers or {}),
                 "Content-Type": f"multipart/form-data; boundary={boundary}"}
         # An iterable body without Content-Length is sent with Transfer-Encoding: chunked.
-        req = urllib.request.Request(url, data=body(), headers=hdrs, method="POST")
+        req = _request(url, data=body(), headers=hdrs, method="POST")
         return self._open(req)

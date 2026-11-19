@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..pipeline import Context
 
-from ..models import Status
+from ..models import DocumentRecord, Status
 from ..registry import register_stage
 from ..utils import HashingReader, Progress, human_bytes, log, safe_filename
 from .base import Stage
@@ -28,7 +31,7 @@ class ExtractStage(Stage):
     writes_target = True
     chunkable = True
 
-    def run(self, ctx, limit: Optional[int] = None):
+    def run(self, ctx: "Context", limit: Optional[int] = None) -> Dict[str, Any]:
         staging = ctx.path(self.options.get("staging_dir", "./staging"))
         os.makedirs(staging, exist_ok=True)
         workers = int(self.options.get("workers", 8))
@@ -37,7 +40,7 @@ class ExtractStage(Stage):
         prog = Progress("extract")
         processed = 0
 
-        def one(rec):
+        def one(rec: DocumentRecord) -> Any:
             sub = os.path.join(staging, safe_filename(rec.series_id)[-2:])
             os.makedirs(sub, exist_ok=True)
             dest = os.path.join(sub, safe_filename(rec.source_id))
@@ -53,7 +56,7 @@ class ExtractStage(Stage):
                 prog.add(1, src.bytes_read)
                 return {"source_id": rec.source_id, "status": Status.EXTRACTED, "staged_path": dest,
                         "checksum": src.hexdigest, "size": src.bytes_read, "error": None}
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if os.path.exists(tmp):
                     os.remove(tmp)
                 prog.add(failed=1)

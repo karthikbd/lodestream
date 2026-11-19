@@ -135,7 +135,7 @@ class _FileNetHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         app: FakeFileNet = self.server.app  # type: ignore[attr-defined]
         body = _read_body(self)
         ctype = self.headers.get("Content-Type", "")
@@ -228,7 +228,7 @@ class _CmisHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         app: FakeCmis = self.server.app  # type: ignore[attr-defined]
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}

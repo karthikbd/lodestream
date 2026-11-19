@@ -6,7 +6,7 @@ import json
 import os
 import posixpath
 import shutil
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..models import DocumentRecord
 from ..registry import register_sink
@@ -25,7 +25,7 @@ class LocalFolderSink(Sink):
         options = { root = "./out", write_metadata = true }
     """
 
-    def __init__(self, options=None, base_dir="."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         super().__init__(options, base_dir)
         self.root = os.path.abspath(os.path.join(base_dir, self.options.get("root", "./lodestream-out")))
         self.write_metadata = self.options.get("write_metadata", True)
@@ -34,7 +34,19 @@ class LocalFolderSink(Sink):
         os.makedirs(self.root, exist_ok=True)
 
     def _abs(self, rel: str) -> str:
-        return os.path.join(self.root, *rel.split("/"))
+        """The path for a target-relative name, which must stay inside the root folder.
+
+        Folder and file names come from the source system, so they are untrusted: a document called
+        ``../../x`` or a folder with a drive or path separator in its name is refused, not written."""
+        parts = [p for p in rel.split("/") if p not in ("", ".")]
+        for part in parts:
+            if part == ".." or os.sep in part or (os.altsep and os.altsep in part) or os.path.splitdrive(part)[0]:
+                raise ValueError(f"unsafe path component {part!r} in {rel!r}")
+        path = os.path.join(self.root, *parts)
+        root = os.path.realpath(self.root)
+        if os.path.commonpath([root, os.path.realpath(path)]) != root:
+            raise ValueError(f"{rel!r} resolves outside the target folder")
+        return path
 
     def _target(self, item: LoadItem) -> str:
         r = item.record
@@ -67,7 +79,7 @@ class LocalFolderSink(Sink):
                                    "version_index": item.record.version_index,
                                    "previous": item.previous_target_id}, fh, indent=2, default=str)
                 results.append(LoadResult(item.record.source_id, target_id=rel))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 results.append(LoadResult(item.record.source_id, error=f"{type(exc).__name__}: {exc}"))
         return results
 
@@ -83,7 +95,7 @@ class LocalFolderSink(Sink):
         return True, "ok"
 
     def check(self, cc: CheckContext) -> List[CheckResult]:
-        def writable():
+        def writable() -> str:
             self.open()
             probe = os.path.join(self.root, ".lodestream-check")
             with open(probe, "w", encoding="utf-8") as fh:

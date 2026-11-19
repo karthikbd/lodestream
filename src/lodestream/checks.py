@@ -51,7 +51,7 @@ def run(area: str, name: str, fn: Callable[[], Any]) -> CheckResult:
         elif out is not None:
             detail = str(out)
         return CheckResult(area, name, status, detail, round(time.monotonic() - start, 2))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return CheckResult(area, name, "fail", f"{type(exc).__name__}: {exc}"[:600],
                            round(time.monotonic() - start, 2))
 

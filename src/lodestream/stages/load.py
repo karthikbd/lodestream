@@ -1,9 +1,14 @@
 """load: create documents (and versions, in order) in the target, in parallel batches."""
 from __future__ import annotations
 
+import functools
+
 import threading
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from typing import List, Optional, Tuple
+from typing import Any, BinaryIO, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..pipeline import Context
 
 from ..models import DocumentRecord, Status
 from ..registry import register_stage
@@ -19,9 +24,9 @@ Chain = Tuple[Optional[str], List[DocumentRecord]]  # (target id of last loaded 
 class _Series:
     """Progress of one version series inside a worker task."""
 
-    __slots__ = ("prev", "chain", "pos")
+    __slots__ = ("chain", "pos", "prev")
 
-    def __init__(self, prev: Optional[str], chain: List[DocumentRecord]):
+    def __init__(self, prev: Optional[str], chain: List[DocumentRecord]) -> None:
         self.prev, self.chain, self.pos = prev, chain, 0
 
     @property
@@ -34,6 +39,10 @@ class _Series:
 
     def stop(self) -> None:
         self.pos = len(self.chain)
+
+
+def _open_staged(path: str) -> BinaryIO:
+    return open(path, "rb")
 
 
 @register_stage("load")
@@ -55,7 +64,7 @@ class LoadStage(Stage):
     writes_target = True
     chunkable = True
 
-    def _statuses(self, ctx) -> List[Status]:
+    def _statuses(self, ctx: "Context") -> List[Status]:
         st = [Status.EXTRACTED]
         if "extract" not in ctx.step_names:
             st.append(Status.PENDING)  # stream mode: read straight from the source
@@ -64,7 +73,7 @@ class LoadStage(Stage):
         return st
 
     @staticmethod
-    def _chain(records: List[DocumentRecord], statuses, max_attempts: int) -> Chain:
+    def _chain(records: List[DocumentRecord], statuses: List[Status], max_attempts: int) -> Chain:
         prev: Optional[str] = None
         chain: List[DocumentRecord] = []
         for r in records:
@@ -81,7 +90,7 @@ class LoadStage(Stage):
                 break  # an older version is not ready yet: keep order, wait
         return prev, chain
 
-    def run(self, ctx, limit: Optional[int] = None):
+    def run(self, ctx: "Context", limit: Optional[int] = None) -> Dict[str, Any]:
         o = self.options
         workers = int(o.get("workers", 8))
         batch_size = int(o.get("batch_size", 50))
@@ -96,13 +105,14 @@ class LoadStage(Stage):
 
         def make_item(rec: DocumentRecord, prev: Optional[str]) -> LoadItem:
             cls, props, folder = ctx.mapper.map(rec)
+            opener: Callable[[], BinaryIO]
             if rec.staged_path:
-                opener = lambda p=rec.staged_path: open(p, "rb")  # noqa: E731
+                opener = functools.partial(_open_staged, rec.staged_path)
             else:
-                opener = lambda r=rec: ctx.source.open_content(r)  # noqa: E731
+                opener = functools.partial(ctx.source.open_content, rec)
             return LoadItem(rec, cls, props, folder, prev, opener)
 
-        def sub_batches(items: List[LoadItem]):
+        def sub_batches(items: List[LoadItem]) -> Iterator[List[LoadItem]]:
             batch: List[LoadItem] = []
             size = 0
             for it in items:
@@ -122,7 +132,7 @@ class LoadStage(Stage):
                     rec = entry.current
                     try:
                         items.append((entry, make_item(rec, entry.prev)))
-                    except Exception as exc:  # noqa: BLE001  (mapping error)
+                    except Exception as exc:
                         ctx.manifest.update([{"source_id": rec.source_id, "status": Status.FAILED,
                                               "attempts": rec.attempts + 1, "error": f"mapping: {exc}"}])
                         prog.add(failed=1)
@@ -131,7 +141,7 @@ class LoadStage(Stage):
                 for batch in sub_batches([it for _, it in items]):
                     try:
                         results = ctx.sink.load_batch(batch)
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:
                         results = [type("R", (), {"source_id": it.record.source_id, "target_id": None,
                                                   "error": f"{type(exc).__name__}: {exc}"})() for it in batch]
                     updates, ok, failed, nbytes = [], 0, 0, 0

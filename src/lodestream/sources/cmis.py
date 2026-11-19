@@ -3,7 +3,7 @@ Nuxeo, SharePoint 2013+ on-prem CMIS producer, and other CMIS-compliant ECMs."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, BinaryIO, Dict, Iterator, List, Optional
 
 from .._http import HttpClient, HttpError
 from ..models import DocumentRecord
@@ -12,7 +12,7 @@ from ..utils import jsonable, to_iso
 from .base import Source
 
 
-def _ms_to_dt(value) -> Optional[datetime]:
+def _ms_to_dt(value: Any) -> Optional[datetime]:
     if value in (None, ""):
         return None
     if isinstance(value, (int, float)):
@@ -43,7 +43,7 @@ class CmisSource(Source):
     (custom metadata) become properties.
     """
 
-    def __init__(self, options=None, base_dir="."):
+    def __init__(self, options: Optional[Dict[str, Any]] = None, base_dir: str = ".") -> None:
         super().__init__(options, base_dir)
         o = self.options
         auth = {"type": "basic", "username": o["username"], "password": o.get("password", "")} \
@@ -55,7 +55,7 @@ class CmisSource(Source):
         repo_id = o.get("repository_id") or next(iter(info))
         self.root_url = info[repo_id]["rootFolderUrl"]
 
-    def _get(self, url: str, **params) -> Any:
+    def _get(self, url: str, **params: Any) -> Any:
         resp = self.client.get(url, params=params)
         if resp.status >= 400:
             raise HttpError(resp.status, resp.text)
@@ -120,6 +120,6 @@ class CmisSource(Source):
                             continue
                         yield self._record(v, path, partition, total - i)
 
-    def open_content(self, record: DocumentRecord):
+    def open_content(self, record: DocumentRecord) -> BinaryIO:
         return self.client.open_stream(self.root_url, params={"objectId": record.source_ref["object_id"],
                                                               "cmisselector": "content"})

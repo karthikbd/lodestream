@@ -9,7 +9,7 @@ with atheris.instrument_imports():
     from lodestream.sinks.filenet_graphql import gql_literal
 
 
-def TestOneInput(data: bytes) -> None:  # noqa: N802
+def TestOneInput(data: bytes) -> None:
     fdp = atheris.FuzzedDataProvider(data)
     choice = fdp.ConsumeIntInRange(0, 3)
     if choice == 0:

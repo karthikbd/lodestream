@@ -65,7 +65,7 @@ def tokenize(text: str) -> List[str]:
 
 
 class _Parser:
-    def __init__(self, tokens: List[str]):
+    def __init__(self, tokens: List[str]) -> None:
         self.t, self.i = tokens, 0
 
     def peek(self) -> Optional[str]:
@@ -187,7 +187,7 @@ def is_list(type_ref: Dict[str, Any]) -> bool:
 class SchemaValidator:
     """Validates parsed fields against a schema fetched lazily through ``fetch_type(name)``."""
 
-    def __init__(self, fetch_type: Callable[[str], Optional[Dict[str, Any]]]):
+    def __init__(self, fetch_type: Callable[[str], Optional[Dict[str, Any]]]) -> None:
         self._fetch = fetch_type
         self._cache: Dict[str, Optional[Dict[str, Any]]] = {}
 
