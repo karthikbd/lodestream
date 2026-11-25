@@ -1,4 +1,4 @@
-FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:21f6fab17ace4dc76e1c56de91ee95d3d03da021df94b41056ba036f6c6f55e9
+FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:5a20f6927f4157bafbb9f66eb62a99dd9e6e92ed94b10ffaee4262b9bedac08a
 COPY . $SRC/lodestream
 WORKDIR $SRC/lodestream
 COPY .clusterfuzzlite/build.sh $SRC/
